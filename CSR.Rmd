@@ -1,0 +1,420 @@
+---
+title: "Lineage and selection analysis of Covid Repertoires"
+author: "Joseph Ng"
+date: "8 April 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dev = "svg", fig.path = "CSR_plots/")
+library(plyr)
+library(ggplot2)
+```
+
+Analysis of CSR by generating pruned "arborescence graphs" from parismony-based reconstructed lineage trees.
+
+Arborescence graphs (definition: there is exactly one directed path from the root to every other nodes in the graph) were generated respecting the rules of CSR such that only paths between nodes (sequences) of either (a) the same isotype or (b) an isotype downstream are retained.
+
+This allows for analysis of both the number and timing of CSR events within lineages.
+
+```{r loaddata, include=FALSE}
+test_data <- read.table('/media/josephn/My_Passport/CovidRepertoire/UseRefTrueHeavyAllCV+AllHC+AllRSV+AllEB_wo10XYFv7Mutation+Clone+AgeGroups+CorrectedSample+CombinedHC+CellType.csv', header = TRUE, sep = ",",
+                      stringsAsFactors = FALSE, comment.char = "")
+test_data <- test_data[ which(grepl("^IGH", test_data$Vfamily)), ]
+test_data$CloneID <- apply(test_data[, c("PatientID", "CloneID")], MARGIN = 1,
+                           function(x) paste(x[1], x[2], sep = "_"))
+test_data$CloneID <- gsub(" ", "", test_data$CloneID)
+
+# further separate Ebola by ethnicity and group all COVID-19 (timepoints + FU) as COVID-19
+test_data$SampleType3 <- test_data$SampleType2
+test_data$SampleType3 <- replace(test_data$SampleType3,
+                                 which(grepl("^CV", test_data$PatientID) & grepl("^FU", test_data$SampleName)),
+                                 "COVID-19")
+test_data$SampleType3 <- replace(test_data$SampleType3,
+                                 which(test_data$PatientID %in% c("EB215", "EB216", "EB217")),
+                                 "Ebola - White")
+test_data$SampleType3 <- replace(test_data$SampleType3,
+                                 which(test_data$PatientID %in% c("E2", "E50", "E14", "E82", "E15", 
+                                                                  "E43", "E46", "E70", "E75")),
+                                 "Ebola - West African")
+test_data$SampleType3 <- replace(test_data$SampleType3,
+                                 which(test_data$PatientID %in% c("E2", "E50", "E14", "E82", "E15", 
+                                                                  "E43", "E46", "E70", "E75")),
+                                 "Ebola - West African")
+
+```
+
+# Lineage
+
+## Number of class switching events
+
+```{r}
+tree_stats <- list.files(path = '/media/josephn/My_Passport/CovidRepertoire/tree_stats', 
+                         pattern = "rds$", full.names = TRUE)
+tree_stats <- tree_stats[which(!grepl("YF189|YF191|YF192|YF200|YF203", tree_stats))]
+tree_stats <- lapply(tree_stats, function(x){
+  ts <- readRDS(x)
+  sample_name <- basename(x)
+  sample_name <- unlist(strsplit(sample_name, split = "_"))[1]
+  ts <- lapply(names(ts), function(y){
+    if( length(ts[[y]]) == 0 ) return(NULL)
+    tb <- ts[[y]]$csr_events
+    if( is.null(tb) ) return(NULL)
+    if( nrow(tb) == 0 ) return(NULL)
+    tb$CloneID <- y
+    tb
+  })
+  ts <- ts[which(sapply(ts, function(z) !is.null(z)))]
+  if(length(ts) > 0){
+    ts <- do.call("rbind", ts)
+    ts$PatientId <- sample_name
+    ts
+  } else return(data.frame())
+})
+tree_stats <- do.call("rbind", tree_stats)
+tree_stats <- merge(tree_stats, 
+                    unique(test_data[, c("CloneID", "AgeGroup", "NumInClone", 
+                                         "CloneGroup")]), all.x = TRUE, all.y = FALSE,
+                    sort = FALSE, by.x = "CloneID", by.y = "CloneID")
+#____________________________
+# add back SampleType
+# rules:
+# (1) Ebola - as is
+# (2) COVID - COVID TimePoints + FU
+# (3) Healthy - as is
+# (4) RSV - (a) Both sequences are from D0: Healthy; (b) At least one sequence NOT from D0: RSV-I / RSV-U as appropriate
+# (5) YFV - (a) Both sequences are from D0: Healthy; (b) At least one sequence NOT from D0: YFVD28
+#____________________________
+tree_stats$SampleType2 <- apply(tree_stats[, c("startLabel", "endLabel", "PatientId")], MARGIN = 1, function(x){
+  if(grepl("^CV", x[3])) return("COVID-19")
+  if(x[3] %in% c("EB215", "EB216", "EB217")) return("Ebola - White")
+  if(x[3] %in% c("E2", "E50", "E14", "E82", "E15", "E43", "E46", "E70", "E75")) return("Ebola - West African")
+  if(grepl("^HB", x[3])) return("Healthy")
+  if(x[3] == "YR001"){
+    seq_names <- c(unlist(strsplit(x[1], split = "_"))[1], unlist(strsplit(x[2], split = "_"))[1])
+    if(grepl("D0", seq_names[1]) & grepl("D0", seq_names[2])) return("Healthy") 
+    else if(grepl("D0", seq_names[1]) & grepl("D10", seq_names[2])) return("RSV-I")
+    else return(NA)
+  }
+  if(x[3] %in% c("YR004", "YR008", "EA003", "EA005", "EA008")){
+    seq_names <- c(unlist(strsplit(x[1], split = "_"))[1], unlist(strsplit(x[2], split = "_"))[1])
+    if(grepl("D0", seq_names[1]) & grepl("D0", seq_names[2])) return("Healthy") else return("RSV-I")
+  }
+  if(x[3] %in% c("YR002", "YR003", "YR006", "EA014", "EA022", "EA024")){
+    seq_names <- c(unlist(strsplit(x[1], split = "_"))[1], unlist(strsplit(x[2], split = "_"))[1])
+    if(grepl("D0", seq_names[1]) & grepl("D0", seq_names[2])) return("Healthy") else return("RSV-U")
+  }
+  if(x[3] %in% c("YF193", "YF199", "YF207")){
+    seq_names <- c(unlist(strsplit(x[1], split = "_"))[1], unlist(strsplit(x[2], split = "_"))[1])
+    if(grepl("D0", seq_names[1]) & grepl("D0", seq_names[2])) return("Healthy") else return("YFVD28")
+  }
+})
+summary(factor(tree_stats$SampleType2))
+
+```
+
+Here too few YFVD28. Here ignore them for this analysis. Moreover the NA (i.e. 'Infected' in the original data table - RSV Infected multiple-timepoints from 1 patient) are also omitted.
+
+```{r}
+tree_stats <- tree_stats[which(tree_stats$SampleType2 != "YFVD28"), ]
+# frequency & distFromGermline of CSR
+tree_bySampleType <- ddply(
+  tree_stats[which(!is.na(tree_stats$SampleType2)), ], c("SampleType2", "AgeGroup", "PatientId", "CloneGroup"),
+  summarise,
+  nEvent = length(unique(CloneID)),
+  meanDist_from_germline = mean(distFromGermline, na.rm = TRUE)
+)
+tree_bySampleType <- merge(tree_bySampleType,
+                         ddply(test_data[which(test_data$NumInClone >= 3 & test_data$SampleType2 != "Infected"),], 
+                               c("PatientID"), summarise, 
+                               nClone = length(unique(CloneID))),
+                         by.x = "PatientId", by.y = "PatientID", sort = FALSE)
+tree_bySampleType$nClone_events <- tree_bySampleType$nEvent / tree_bySampleType$nClone
+tree_bySampleType$AgeGroup <- factor(tree_bySampleType$AgeGroup,
+                                   levels = c("Unknown", "Young", "Middle", "Old"))
+tree_bySampleType$SampleType2 <- factor(tree_bySampleType$SampleType2,
+                                      levels = c("Healthy", "COVID-19", "Ebola - White", "Ebola - West African",
+                                                 "RSV-I", "RSV-U", "YFVD28"),
+                                      labels = c("Healthy", "COVID-19", "Ebola", "Ebola",
+                                                 "RSV-I", "RSV-U", "YFVD28"))
+tree_bySampleType$CloneGroup <- factor(tree_bySampleType$CloneGroup,
+                                     levels = c("Unique", "2", "3", "4&5",
+                                                "6to9", ">10"),
+                                     labels = c("Unique", "2", "3", "4 & 5",
+                                                "6 to 9", ">10"))
+```
+
+```{r, fig.width=6, fig.height=6}
+nEvent_test <- lapply(unique(tree_bySampleType$CloneGroup), function(x){
+  require(multcomp)
+  o <- lapply(1, function(y){#c("Young", "Middle", "Old"), function(y){
+    lm_tb <- tree_bySampleType[which(tree_bySampleType$CloneGroup == x), ]
+    colnames(lm_tb)[ which(colnames(lm_tb) == "SampleType2") ] <- "xxx"
+    if(nrow(lm_tb) > 0 & length(unique(lm_tb$xxx)) > 1 &
+       sum(grepl("^Healthy", lm_tb$xxx)) > 0){
+      onewayanova <- try( suppressWarnings(
+        aov(
+          as.formula( paste("nClone_events", "xxx", sep = " ~ ")), data = lm_tb
+        )), silent = TRUE)
+      if( "aov" %in% class(onewayanova) ){
+        p <- summary(onewayanova)[[1]][1,5]
+        if( is.nan(p) ) posthoc <- NA else {
+          posthoc <- glht(onewayanova, linfct = mcp(xxx = "Dunnett"))
+          posthoc <- summary(posthoc)
+          signif_comparison <- 1:length(posthoc$test$pvalues)#which(posthoc$test$pvalues < 0.05)
+          if( length(signif_comparison) > 0){
+            posthoc <- lapply(signif_comparison, function(y){
+              data.frame(variable = x,
+                         SampleType2 = unlist(strsplit(names(posthoc$test$coefficients)[y], split = " - "))[1],
+                         pval = round(posthoc$test$pvalues[y], 4))
+            })
+            posthoc <- do.call("rbind", posthoc)
+          } else posthoc <- data.frame()
+        }
+      } else return(data.frame())
+    } else return(data.frame())
+  })
+  do.call("rbind", o)
+})
+nEvent_test <- do.call("rbind", nEvent_test)
+rownames(nEvent_test) <- NULL
+tree_bySampleType <- merge(tree_bySampleType, nEvent_test, by.x = c("CloneGroup", "SampleType2"),
+                         by.y = c("variable", "SampleType2"), sort = FALSE, all.x = TRUE)
+tree_bySampleType$sig <- (tree_bySampleType$pval < 0.05)
+tree_bySampleType$sig[is.na(tree_bySampleType$sig)] <- FALSE
+
+ggplot(tree_bySampleType[!tree_bySampleType$CloneGroup %in% c("Unique", "2"), ], 
+       aes(x = SampleType2, y = nClone_events, colour = sig)) + geom_boxplot() +
+  geom_point(position = position_jitter(width = 0.2)) + 
+  scale_y_continuous(labels = scales::percent, limits = c(0, 0.2), 
+                     name = "% clones with CSR events") +
+  scale_colour_manual(values = c("FALSE" = "grey", "TRUE" = "red"), name = "p < 0.05") +
+  cowplot::theme_cowplot() + xlab("") + theme(legend.position = "bottom") +
+  facet_wrap(~ CloneGroup, ncol = 1, strip.position = "right")
+```
+
+
+## Timing of class switching events
+
+Parsing arborescence graphs for CSR events and getting distances from germline.
+
+```{r, fig.width=8, fig.height=6}
+# frequency & distFromGermline of CSR by agegroup/healthy
+tree_bySampleType <- ddply(
+  tree_stats[which(!is.na(tree_stats$SampleType2)), ], c("SampleType2", "startIsotype", "endIsotype"),
+  summarise,
+  nEvent = length(unique(CloneID)),
+  meanDist_from_germline = mean(distFromGermline, na.rm = TRUE)
+)
+tree_bySampleType <- merge(tree_bySampleType,
+                         ddply(test_data[which(test_data$NumInClone >= 3 & test_data$SampleType2 != "Infected"),], 
+                               c("SampleType3"), summarise, 
+                               nClone = length(unique(CloneID))),
+                         by.x = c("SampleType2"), by.y = c("SampleType3"))
+tree_bySampleType$nClone_events <- tree_bySampleType$nEvent / tree_bySampleType$nClone
+tree_bySampleType <- tree_bySampleType[which(grepl("Ig[MDE]|IgA[12]|IgG[1-4]",
+                                               tree_bySampleType$startIsotype) &
+                                           grepl("Ig[MDE]|IgA[12]|IgG[1-4]",
+                                               tree_bySampleType$endIsotype)), ]
+tree_bySampleType$startIsotype <- factor(tree_bySampleType$startIsotype,
+                                       levels = c("IgM", "IgG3", "IgG1", "IgA1",
+                                                  "IgG2", "IgG4", "IgE", "IgA2"),
+                                       labels = c("M", "G3", "G1", "A1", "G2",
+                                                  "G4", "E", "A2"))
+tree_bySampleType$endIsotype <- factor(tree_bySampleType$endIsotype,
+                                     levels = c("IgM", "IgG3", "IgG1", "IgA1",
+                                                "IgG2", "IgG4", "IgE", "IgA2"),
+                                       labels = c("M", "G3", "G1", "A1", "G2",
+                                                  "G4", "E", "A2"))
+#tree_bySampleType$AgeGroup <- factor(tree_bySampleType$AgeGroup,
+#                                   levels = c("?", "Young", "Middle", "Old"))
+tree_bySampleType$SampleType2 <- factor(tree_bySampleType$SampleType2,
+                                          levels = c("Healthy", "COVID-19", "Ebola - White",
+                                                     "RSV-I", "RSV-U", "Ebola - West African"))
+
+ggplot(tree_bySampleType[which(tree_bySampleType$SampleType2 %in% 
+                               c("Healthy", "COVID-19", "Ebola - White", "Ebola - West African", "RSV-I", "RSV-U") &
+                               tree_bySampleType$endIsotype != "E"), ],#[which(!tree_bySampleType$SampleType %in% 
+                      #         c("YFV Vaccine")), ], 
+       aes(x = endIsotype, y = startIsotype, 
+           fill = meanDist_from_germline, size = nClone_events)) +
+  geom_point(pch = 21) + cowplot::theme_cowplot() + 
+  scale_size_continuous(range = c(0, 10), labels = scales::percent,
+                        name = "% clones with\nCSR events") +
+  scale_fill_viridis_c(limits = c(0, 0.2), 
+                       name = "CSR timing\n(mean distance\nfrom germline)") +
+  xlab("To") + ylab("From") + facet_wrap( ~ SampleType2)
+```
+
+**Statistical test for significance**: One-way ANOVA followed by Dunnett post-hoc comparison against the Healthy cohort.
+
+## Statistical test: CSR timing
+
+```{r}
+# Individual patients:
+# frequency & distFromGermline of CSR by agegroup/healthy
+tree_byPatient <- ddply(
+  tree_stats[which(!is.na(tree_stats$SampleType2)), ], 
+  c("SampleType2", "PatientId", "startIsotype", "endIsotype"),
+  summarise,
+  nEvent = length(unique(CloneID)),
+  meanDist_from_germline = mean(distFromGermline, na.rm = TRUE)
+)
+tree_byPatient <- merge(tree_byPatient,
+                         ddply(test_data[which(test_data$NumInClone >= 3 & test_data$SampleType2 != "Infected"),], 
+                               c("PatientID"), summarise, 
+                               nClone = length(unique(CloneID))),
+                        by.x = "PatientId", by.y = "PatientID", sort = FALSE)
+tree_byPatient$nClone_event <- tree_byPatient$nEvent / tree_byPatient$nClone
+tree_byPatient <- tree_byPatient[which(grepl("Ig[MDE]|IgA[12]|IgG[1-4]",
+                                               tree_byPatient$startIsotype) &
+                                           grepl("Ig[MDE]|IgA[12]|IgG[1-4]",
+                                               tree_byPatient$endIsotype)), ]
+tree_byPatient$startIsotype <- factor(tree_byPatient$startIsotype,
+                                       levels = c("IgM", "IgG3", "IgG1", "IgA1",
+                                                  "IgG2", "IgG4", "IgE", "IgA2"),
+                                       labels = c("M", "G3", "G1", "A1", "G2",
+                                                  "G4", "E", "A2"))
+tree_byPatient$endIsotype <- factor(tree_byPatient$endIsotype,
+                                     levels = c("IgM", "IgG3", "IgG1", "IgA1",
+                                                "IgG2", "IgG4", "IgE", "IgA2"),
+                                       labels = c("M", "G3", "G1", "A1", "G2",
+                                                  "G4", "E", "A2"))
+#tree_byPatient$AgeGroup <- factor(tree_byPatient$AgeGroup,
+#                                  levels = c("?", "Young", "Middle", "Old"))
+tree_byPatient$SampleType2 <- factor(tree_byPatient$SampleType2,
+                                    levels = c("Healthy", "COVID-19", "Ebola - West African", "Ebola - White",
+                                               "RSV-I", "RSV-U", "YFVD28"),
+                                    labels = c("Healthy", "COVID-19", "Ebola (West African)", "Ebola (White)",
+                                               "RSV-I", "RSV-U", "YFVD28"))
+
+timing_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2), 
+                     MARGIN = 2, function(x){
+  o <- lapply(1, function(y){#c("Young", "Middle", "Old"), function(y){
+    lm_tb <- tree_byPatient[which(tree_byPatient$startIsotype == x[1] &
+                                    tree_byPatient$endIsotype == x[2]), ]
+#                                    tree_byPatient$AgeGroup == y), ]
+    colnames(lm_tb)[which(colnames(lm_tb) == "SampleType2")] <- "xxx"
+    if(nrow(lm_tb) > 0 & length(unique(lm_tb$xxx)) > 1 &
+       sum(grepl("^Healthy", lm_tb$xxx)) > 0){
+      onewayanova <- try( suppressWarnings(
+        aov(
+          as.formula( paste("meanDist_from_germline", "xxx", sep = " ~ ")), data = lm_tb
+        )), silent = TRUE)
+      if( "aov" %in% class(onewayanova) ){
+        p <- summary(onewayanova)[[1]][1,5]
+        if( is.null(p) ) posthoc <- data.frame() else {
+          posthoc <- glht(onewayanova, linfct = mcp(xxx = "Dunnett"))
+          posthoc <- summary(posthoc)
+          signif_comparison <- 1:length(posthoc$test$pvalues)#which(posthoc$test$pvalues < 0.05)
+          if( length(signif_comparison) > 0){
+            posthoc <- lapply(signif_comparison, function(y){
+              data.frame(startIsotype = x[1], endIsotype = x[2],
+                         SampleType2 = unlist(strsplit(names(posthoc$test$coefficients)[y], split = " - "))[1],
+                         pval = round(posthoc$test$pvalues[y], 4))
+            })
+            posthoc <- do.call("rbind", posthoc)
+          } else posthoc <- data.frame()
+        }
+      } else return(data.frame())
+    } else return(data.frame())
+  })
+  do.call("rbind", o)
+})
+timing_test <- do.call("rbind", timing_test)
+rownames(timing_test) <- NULL
+timing_test <- timing_test[timing_test$pval < 0.05, ]
+timing_test
+```
+
+```{r, fig.width=7, fig.height=5}
+# plot
+tree_byPatient$CSR <- apply(tree_byPatient[, c("startIsotype", "endIsotype")],
+                            MARGIN = 1, function(x) paste(x[1], x[2], sep = " to "))
+timing_test$CSR <- apply(timing_test[, c("startIsotype", "endIsotype")],
+                         MARGIN = 1, function(x) paste(x[1], x[2], sep = " to "))
+tree_byPatient <- merge(tree_byPatient, 
+                        timing_test[, c("SampleType2", "CSR", "pval")],
+                        by = c("SampleType2", "CSR"), all.x = TRUE,
+                        sort = FALSE)
+colnames(tree_byPatient)[ncol(tree_byPatient)] <- "p_timing"
+tree_byPatient$signif_timing <- (tree_byPatient$p_timing < 0.05)
+tree_byPatient[is.na(tree_byPatient$signif_timing), "signif_timing"] <- FALSE
+
+# plot those with significant differences in at least 1 sample type
+ggplot(tree_byPatient[which(tree_byPatient$CSR %in% timing_test$CSR),],
+       aes(x = SampleType2, y = meanDist_from_germline, colour = signif_timing)) +
+  geom_boxplot() + geom_point() + cowplot::theme_cowplot() +
+  facet_grid(~ CSR) + xlab("") + ylab("CSR timing") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)) +
+  scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), name = "p < 0.05")
+```
+
+## Statistical test: CSR event count
+
+only shown those with p < 0.05:
+
+```{r}
+nEvent_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2), 
+                     MARGIN = 2, function(x){
+  o <- lapply(1, function(y){#c("Young", "Middle", "Old"), function(y){
+    lm_tb <- tree_byPatient[which(tree_byPatient$startIsotype == x[1] &
+                                    tree_byPatient$endIsotype == x[2]), ]
+#                                    tree_byPatient$AgeGroup == y), ]
+    colnames(lm_tb)[which(colnames(lm_tb) == "SampleType2")] <- "xxx"
+    if(nrow(lm_tb) > 0 & length(unique(lm_tb$xxx)) > 1 &
+       sum(grepl("^Healthy", lm_tb$xxx)) > 0){
+      onewayanova <- try( suppressWarnings(
+        aov(
+          as.formula( paste("nClone_event", "xxx", sep = " ~ ")), data = lm_tb
+        )), silent = TRUE)
+      if( "aov" %in% class(onewayanova) ){
+        p <- summary(onewayanova)[[1]][1,5]
+        if( is.null(p) ) posthoc <- data.frame() else {
+          posthoc <- glht(onewayanova, linfct = mcp(xxx = "Dunnett"))
+          posthoc <- summary(posthoc)
+          signif_comparison <- 1:length(posthoc$test$pvalues)#which(posthoc$test$pvalues < 0.05)
+          if( length(signif_comparison) > 0){
+            posthoc <- lapply(signif_comparison, function(y){
+              data.frame(startIsotype = x[1], endIsotype = x[2],
+                         SampleType2 = unlist(strsplit(names(posthoc$test$coefficients)[y], split = " - "))[1],
+                         pval = round(posthoc$test$pvalues[y], 4))
+            })
+            posthoc <- do.call("rbind", posthoc)
+          } else posthoc <- data.frame()
+        }
+      } else return(data.frame())
+    } else return(data.frame())
+  })
+  do.call("rbind", o)
+})
+nEvent_test <- do.call("rbind", nEvent_test)
+rownames(nEvent_test) <- NULL
+nEvent_test <- nEvent_test[nEvent_test$pval < 0.05, ]
+nEvent_test
+```
+
+```{r, fig.width=7, fig.height=11}
+# plot
+tree_byPatient$CSR <- apply(tree_byPatient[, c("startIsotype", "endIsotype")],
+                            MARGIN = 1, function(x) paste(x[1], x[2], sep = " to "))
+nEvent_test$CSR <- apply(nEvent_test[, c("startIsotype", "endIsotype")],
+                         MARGIN = 1, function(x) paste(x[1], x[2], sep = " to "))
+tree_byPatient <- merge(tree_byPatient, 
+                        nEvent_test[, c("SampleType2", "CSR", "pval")],
+                        by = c("SampleType2", "CSR"), all.x = TRUE,
+                        sort = FALSE)
+colnames(tree_byPatient)[ncol(tree_byPatient)] <- "p_nEvent"
+tree_byPatient$signif_nEvent <- (tree_byPatient$p_nEvent < 0.05)
+tree_byPatient[is.na(tree_byPatient$signif_nEvent), "signif_nEvent"] <- FALSE
+
+# plot those with significant differences in at least 1 sample types
+ggplot(tree_byPatient[which(tree_byPatient$CSR %in% nEvent_test$CSR),],
+       aes(x = SampleType2, y = nClone_event, colour = signif_nEvent)) +
+  geom_boxplot() + geom_point() + cowplot::theme_cowplot() +
+  facet_wrap( ~ CSR, ncol = 4, scales = "free_x") + xlab("") + #ylab("% clones with CSR events") +
+  scale_y_continuous(labels = scales::percent, name="% clones with CSR events") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)) +
+  scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), name = "p < 0.05")
+```
+

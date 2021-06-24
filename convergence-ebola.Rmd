@@ -1,0 +1,354 @@
+---
+title: "Converging sequences - Ebola"
+author: "Joseph Ng"
+date: "14 June 2021"
+output: 
+  html_document:
+    df_print: kable
+urlcolor: blue
+---
+
+```{r setup}
+# setup and load packages
+knitr::opts_chunk$set(
+	echo = TRUE, message = FALSE, warning = FALSE, fig.path = "ConvergenceEbola_plots/", 
+	dev = "svg"
+)
+library(ggplot2) # for plotting
+suppressPackageStartupMessages( 
+  library(cowplot) # pretty ggplot
+)
+library(reshape2) # rearranging/'melt'-ing tables
+library(plyr) # summarising (pivot-table-style) tables 
+```
+
+```{r loaddata, include=FALSE}
+test_data <- read.csv('/media/josephn/My_Passport/CovidRepertoire/UseRefTrueHeavyAllCV+AllHC+AllRSV+AllEB_wo10XYFv7Mutation+Clone+AgeGroups+CorrectedSample+CombinedHC+CellType.csv',
+                      stringsAsFactors = FALSE)
+test_data <- test_data[grepl("IGH", test_data$Vfamily), ] 
+```
+
+# Convergent sequences
+
+Heavy chains - Same V gene, Same J gene, Same CDR3 length, 85% CDR3 identity
+
+CDR3s with length > 30 AAs & unproductive sequences are ignored here for simplicity.
+Considered here the following:
+
+* All UseAsRef sequences from Ebola samples
+* Healthy controls (YFVD0 / RSVD0 / 2020 Healthy controls) UseAsRef sequences 
+
+```{r}
+convg_data <- test_data[which(test_data$Num_AAs <= 30 & 
+                               test_data$V.DOMAIN.Functionality == "productive"), ]
+convg_data <- convg_data[which(convg_data$SampleType2 %in% c("Healthy",
+                                                             "Ebola")), ]
+
+# first take list of IgH that binds Spike - definite ones from PDB:
+pdb_ab <- read.table('known_binders/20210519ver_sabdab_ebolaAbs_sequences_VJgenes.tsv', 
+                     sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+# take only CDR3, ie removing the canonical C and W that flanks CDR3
+pdb_ab$CDRH3 <- substr(pdb_ab$CDRH3, 2, nchar(pdb_ab$CDRH3)-1) 
+pdb_ab$struct_id <- apply(pdb_ab[, 1:2], MARGIN = 1, paste, collapse = "|")
+#pdb_ab$Specificity <- "PDB"
+pdb_ab <- ddply(pdb_ab, c("CDRH3", "Specificity", "Vgene", "Jfamily"), summarise,
+                  fasta_header = paste(struct_id, collapse = ","),
+                  molecule_name = paste(unique(molecule_name), collapse = ","))
+pdb_ab$source <- "PDB"
+pdb_ab$molecule_name <- apply(pdb_ab[, c("fasta_header", "molecule_name")], 
+                                MARGIN = 1, function(x) paste(x[1], x[2], sep = ": "))
+pdb_ab <- pdb_ab[, -which(colnames(pdb_ab) == "fasta_header")]
+
+# also read in known binders determined from experiments, obtained from publications
+cloned_ab_pub <- c("known_binders/Davis_et_al_EBOV.txt")
+cloned_ab_pub <- lapply(cloned_ab_pub, read.table, stringsAsFactors=FALSE, 
+                       sep = "\t", header = TRUE, comment.char = "#")
+cloned_ab_pub[[1]]$source <- "Davis_et_al"
+cloned_ab_pub <- do.call("rbind", cloned_ab_pub)
+cloned_ab_pub <- ddply(cloned_ab_pub, c("CDRH3", "Specificity", "Vgene", "Jfamily"),
+                       summarise,
+                       molecule_name = paste(sort(unique(Antibody)), collapse = ","),
+                       source = paste(sort(unique(source)), collapse = ","))
+cloned_ab <- rbind(pdb_ab, cloned_ab_pub)
+cloned_ab <- ddply(cloned_ab, c("CDRH3", "Specificity", "Vgene", "Jfamily"), summarise,
+                   molecule_name = paste(sort(unique(molecule_name)), collapse = ","),
+                   source = paste(sort(unique(source)), collapse = ","))
+cloned_ab$Num_AAs <- sapply(cloned_ab$CDRH3, nchar) 
+
+# group sequences by same V and J genes
+convg_data <- convg_data[, c("AA_CDR3_edited", "SampleType2", "Vgene", "Jfamily",
+                             "Seq_ID", "SampleType2", "Num_AAs")]
+colnames(convg_data) <- colnames(cloned_ab)
+convg_data <- rbind(convg_data, cloned_ab)
+convg_data <- split(convg_data, f = list(convg_data$Vgene, convg_data$Jfamily,
+                                         convg_data$Num_AAs))
+convg_data <- convg_data[sapply(convg_data, nrow) > 1]
+
+```
+
+```{r, eval=FALSE}
+# for each V-J combination, calculate % identity, take >= 85%
+converge <- lapply(names(convg_data), function(x){
+  tb <- convg_data[[x]]
+  print(x)
+  sims <- stringdist::stringsimmatrix(tb$CDRH3)
+  sims[lower.tri(sims)] <- NA
+  sims <- reshape2::melt(sims)
+  sims <- sims[which(!is.na(sims[, 3])), ]
+  sims <- sims[which(sims[, 1] != sims[, 2]), ]
+  sims <- sims[which(sims[, 3] >= 0.85), ]
+  sims[, 1] <- factor(sims[, 1], levels = 1:nrow(tb), labels = tb$molecule_name)
+  sims[, 2] <- factor(sims[, 2], levels = 1:nrow(tb), labels = tb$molecule_name)
+  sims
+})
+converge <- converge[sapply(converge, function(x) nrow(x) > 0)]
+converge <- do.call("rbind", converge)
+
+# map back metadata about the sequences
+convg_data <- do.call("rbind", convg_data)
+converge <- merge(converge, convg_data[, c("molecule_name", "CDRH3", "Specificity",
+                                           "Vgene","Jfamily")],
+                  by.x = "Var1", by.y = "molecule_name", all.x = TRUE, all.y = FALSE,
+                  sort = FALSE)
+colnames(converge)[4:7] <- paste0("Seq1_", colnames(converge)[4:7]) 
+converge <- merge(converge, convg_data[, c("molecule_name", "CDRH3", "Specificity",
+                                           "Vgene","Jfamily")],
+                  by.x = "Var2", by.y = "molecule_name", all.x = TRUE, all.y = FALSE,
+                  sort = FALSE)
+colnames(converge)[8:11] <- paste0("Seq2_", colnames(converge)[8:11]) 
+colnames(converge)[1:3] <- c("Seq2", "Seq1", "identity")
+
+# retain only the sequences coming from different patients
+converge$Seq1_PatientID <- sapply(as.character(converge$Seq1), 
+                                  function(x) gsub("D[0-9]*$", "", 
+                                                   unlist(strsplit(x, split = "_"))[1],
+                                                   perl = TRUE))
+converge$Seq2_PatientID <- sapply(as.character(converge$Seq2), 
+                                  function(x) gsub("D[0-9]*$", "", 
+                                                   unlist(strsplit(x, split = "_"))[1],
+                                                   perl = TRUE))
+converge <- converge[which(converge$Seq1_PatientID != converge$Seq2_PatientID), ]
+saveRDS(converge, "ConvergeSequences_ebolaAbPDB_graph_SameVJPatient.rds")
+
+```
+
+## Known binders
+
+Added to this set of sequences known binders of ebolavirus proteins from the following sources:
+
+* CDR3s from antibody structures resolved in complex with ebolavirus proteins (Search PDBe 21st May 2021). **All structures are binding the fusion glycoprotein** (but could be targeting different domains/epitopes).
+*. Cloned & Experimentally confirmed binders to SARS-CoV-2 proteins from [Davis et al, 2019 Cell](https://dx.doi.org/10.1016%2Fj.cell.2019.04.036) - taken cloned antibodies tested for specificity using Elisa.
+
+If V & J germline gene assignment are missing from data source they are annotated using either IMGT/High-VQuest (if nucleotide sequences are available) or IMGT/DomainGapAlign (if only amino acid sequences are available). **Total: 267 unique CDRH3 sequences from PDB and publications**.
+
+### Gene usage in known binders
+
+```{r, fig.width=7, fig.height=5}
+cloned_v <- ddply(cloned_ab, c("Specificity", "Vgene"), nrow)
+cloned_j <- ddply(cloned_ab, c("Specificity", "Jfamily"), nrow)
+cloned_vj <- ddply(cloned_ab, c("Specificity", "Vgene", "Jfamily"), nrow)
+cloned_vj$VJ <- paste(cloned_vj$Vgene, cloned_vj$Jfamily, sep = ".")
+cloned_vj$VJ <- gsub("IGH", "", cloned_vj$VJ)
+
+#_______________________
+# fisher exact test
+#_______________________
+# Vgene
+cloned_v <- do.call("rbind", lapply(unique(cloned_v$Specificity), function(x){
+  do.call("rbind", lapply(unique(cloned_v$Vgene), function(y){
+    both <- which(cloned_v$Vgene == y & cloned_v$Specificity == x)
+    if(length(both) == 0) return(data.frame())
+    data.frame(Specificity = x, Vgene = y,
+               both = cloned_v[both, "V1"],
+               Spec_other = sum(cloned_v[cloned_v$Vgene == y & 
+                                            cloned_v$Specificity != x, "V1"]),
+               V_other = sum(cloned_v[cloned_v$Vgene != y & 
+                                         cloned_v$Specificity == x, "V1"]),
+               neither = sum(cloned_v[cloned_v$Vgene != y & 
+                                         cloned_v$Specificity != x, "V1"])
+               )
+  }))
+}))
+cloned_v <- ddply(cloned_v, c("Specificity", "Vgene"), summarise,
+                  logOR = log2(fisher.test(matrix(c(both, Spec_other, 
+                                                    V_other, neither),
+                                                  byrow = TRUE, nrow = 2))$estimate),
+                  pvalue = fisher.test(matrix(c(both, Spec_other, 
+                                                V_other, neither),
+                                              byrow = TRUE, nrow = 2))$p.value)
+
+# Jfamily
+cloned_j <- do.call("rbind", lapply(unique(cloned_j$Specificity), function(x){
+  do.call("rbind", lapply(unique(cloned_j$Jfamily), function(y){
+    both <- which(cloned_j$Jfamily == y & cloned_j$Specificity == x)
+    if(length(both) == 0) return(data.frame())
+    data.frame(Specificity = x, Jfamily = y,
+               both = cloned_j[both, "V1"],
+               Spec_other = sum(cloned_j[cloned_j$Jfamily == y & 
+                                            cloned_j$Specificity != x, "V1"]),
+               J_other = sum(cloned_j[cloned_j$Jfamily != y & 
+                                         cloned_j$Specificity == x, "V1"]),
+               neither = sum(cloned_j[cloned_j$Jfamily != y & 
+                                         cloned_j$Specificity != x, "V1"])
+               )
+  }))
+}))
+cloned_j <- ddply(cloned_j, c("Specificity", "Jfamily"), summarise,
+                  logOR = log2(fisher.test(matrix(c(both, Spec_other, 
+                                                    J_other, neither),
+                                                  byrow = TRUE, nrow = 2))$estimate),
+                  pvalue = fisher.test(matrix(c(both, Spec_other, 
+                                                J_other, neither),
+                                              byrow = TRUE, nrow = 2))$p.value)
+
+# V-J
+cloned_vj <- do.call("rbind", lapply(unique(cloned_vj$Specificity), function(x){
+  do.call("rbind", lapply(unique(cloned_vj$VJ), function(y){
+    both <- which(cloned_vj$VJ == y & cloned_vj$Specificity == x)
+    if(length(both) == 0) return(data.frame())
+    data.frame(Specificity = x, VJ = y,
+               both = cloned_vj[both, "V1"],
+               Spec_other = sum(cloned_vj[cloned_vj$VJ == y & 
+                                            cloned_vj$Specificity != x, "V1"]),
+               VJ_other = sum(cloned_vj[cloned_vj$VJ != y & 
+                                         cloned_vj$Specificity == x, "V1"]),
+               neither = sum(cloned_vj[cloned_vj$VJ != y & 
+                                         cloned_vj$Specificity != x, "V1"])
+               )
+  }))
+}))
+cloned_vj <- ddply(cloned_vj, c("Specificity", "VJ"), summarise,
+                  logOR = log2(fisher.test(matrix(c(both, Spec_other, 
+                                                    VJ_other, neither),
+                                                  byrow = TRUE, nrow = 2))$estimate),
+                  pvalue = fisher.test(matrix(c(both, Spec_other, 
+                                                VJ_other, neither),
+                                              byrow = TRUE, nrow = 2))$p.value)
+save("cloned_v", "cloned_j", "cloned_vj", file = "cloned_VJ_usage_test.RData")
+
+# plot volcano plot
+cloned_vj_plot <- cloned_vj
+cloned_vj_plot[which(is.infinite(cloned_vj_plot$logOR)), "logOR"] <- 6
+cloned_vj_plot$VJ <- factor(cloned_vj_plot$VJ,
+                            levels = sort(unique(cloned_vj_plot$VJ)))
+ggplot(cloned_vj_plot, aes(x = logOR, y = -log10(pvalue))) + geom_point() +
+  cowplot::theme_cowplot() + facet_wrap(~ Specificity) + 
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+  scale_x_continuous(breaks = c(-2, 0, 2, 4)) +
+  ggrepel::geom_text_repel(aes(label = VJ), 
+                           data = cloned_vj_plot[which(cloned_vj_plot$pvalue < 0.05 &
+                                                        cloned_vj_plot$logOR > 0), ])
+```
+
+```{r fig.width=3.5, fig.height=5}
+ggplot(cloned_vj_plot[which(cloned_vj_plot$pvalue < 0.05 &
+                                cloned_vj_plot$logOR > 0), ], 
+       aes(x = Specificity, y = VJ, fill = logOR)) + 
+  geom_point(size = 5, pch = 21, colour = "grey") + cowplot::theme_cowplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  scale_fill_gradient(low = "white", high = "navy", limits = c(0, 6)) + ylab("")
+```
+
+### Construction of network
+
+Evaluate CDRH3 AA identity, and construct a network connecting sequences (from data / known binders). Edges are drawn between pairs of sequences using identical rules as in connecting the convergent repertoire sequences.
+
+```{r, fig.width=6, fig.height=4}
+converge <- readRDS("ConvergeSequences_ebolaAbPDB_graph_SameVJPatient.rds")
+convg_data <- do.call("rbind", convg_data)
+
+# process in graph object
+converge_graph <- igraph::graph_from_data_frame(converge, directed = FALSE)
+
+# the graph is very disconnected
+components <- igraph::components(converge_graph)
+
+# size distribution of components
+ggplot(data.frame(components$csize)) + geom_histogram(aes(components.csize)) +
+  scale_x_log10(name = "Cluster size") + cowplot::theme_cowplot() + 
+  ggtitle("Size distribution of clusters") + ylab("Number of clusters")
+
+# components with at least 10 sequences - makeup breakdown by COVID/Healthy/YFV/PDB
+membership <- data.frame(components$membership)
+membership$Seq_ID <- rownames(membership)
+colnames(membership)[1] <- "cluster"
+membership <- list(
+  membership, 
+  data.frame(cluster = 1:length(components$csize), cluster_size = components$csize)
+)
+membership <- merge(membership[[1]], membership[[2]], by = "cluster",
+                    all.x = TRUE, all.y = FALSE, sort = FALSE)
+converge_nodes <- list(
+  converge[, which(grepl("^Seq1", colnames(converge)))],
+  converge[, which(grepl("^Seq2", colnames(converge)))]
+)
+converge_nodes <- unique(do.call("rbind", lapply(converge_nodes, function(tb){
+  colnames(tb) <- c("Seq_ID", "CDRH3", "Specificity", "Vgene", "Jfamily", "PatientID")
+  tb
+})))
+membership <- merge(membership, converge_nodes, 
+                    all.x = TRUE, all.y = FALSE, sort= FALSE)
+membership$SampleType <- factor(membership$Specificity,
+                                levels = c("Ebola", "Healthy", 
+                                           "sGP", "GP", "NP"),
+                                labels = c("Repertoire", "Repertoire",
+                                           "Binders", "Binders", "Binders"))
+# those clusters with both repertoire sequences and known binders
+membership_both <- ddply(membership, "cluster", summarise,
+                         both = ("Repertoire" %in% SampleType & "Binders" %in% SampleType))
+membership_both <- membership_both[which(membership_both$both), "cluster"]
+membership$both <- (membership$cluster %in% membership_both)
+
+membership <- merge(membership, test_data[, c("Seq_ID", "NumInClone", "CloneGroup")],
+                    by = "Seq_ID", all.x = TRUE, all.y = FALSE, sort = FALSE)
+membership$SampleType2 <- membership$Specificity
+saveRDS(membership, 'convergent_cluster_membership_ebolavirus.rds')
+```
+
+```{r, fig.width=5, fig.height=5.5}
+# largest clusters & V/J gene use
+cluster_summary <- membership[, c("cluster", "cluster_size", "SampleType2", "Vgene", "Jfamily", "both")]
+cluster_summary <- cluster_summary[order(cluster_summary$cluster_size, decreasing = TRUE), ]
+cluster_large <- cluster_summary[which(cluster_summary$cluster_size >= 10), ]
+cluster_large <- ddply(cluster_large, c("cluster", "cluster_size", "Vgene", "Jfamily", "SampleType2"), nrow)
+cluster_large$cluster <- factor(cluster_large$cluster, 
+                                levels = unique(cluster_large$cluster[order(cluster_large$cluster_size, 
+                                                                            decreasing = TRUE)]))
+
+# n sequences per cluster
+g1 <- ggplot(cluster_large, aes(x = cluster, y = V1, fill = SampleType2)) + geom_bar(stat = "identity") +
+  cowplot::theme_cowplot() + theme(axis.text.x = element_blank()) + 
+  scale_fill_manual(values = c("Healthy" = "#7FC97F", "Ebola" = "#FFFF99"), name = "") +
+  xlab("Convergent clusters") +ylab("Number of\nsequences") + ggtitle("Clusters with 10 or more\nsequences (n = 8)")
+# Vgene usage
+g2 <- ggplot(cluster_large, aes(x = cluster, y = Vgene)) + geom_tile(fill = "black") +
+  cowplot::theme_cowplot() + theme(axis.text.x = element_blank(),
+                                   axis.ticks.x = element_blank()) + xlab("") +ylab("V usage")
+# Jfamily usage
+g3 <- ggplot(cluster_large, aes(x = cluster, y = Jfamily)) + geom_tile(fill = "black") +
+  cowplot::theme_cowplot() + theme(axis.text.x = element_blank(),
+                                   axis.ticks.x = element_blank()) + xlab("Convergent clusters") +ylab("J usage")
+
+# similarity between sequences within the same cluster
+converge <- merge(converge, membership[, c("Seq_ID", "cluster")], by.x = "Seq1", 
+                  by.y = "Seq_ID", all.x = TRUE, all.y = FALSE, sort = FALSE)
+converge_large <- converge[which(converge$cluster %in% cluster_large$cluster), ]
+converge_large$cluster <- factor(converge_large$cluster, levels = levels(cluster_large$cluster))
+g4 <- ggplot(converge_large, aes(x = cluster, y = identity)) + 
+  stat_summary(fun.min = min, fun.max = max, fun = median) + xlab("Convergent clusters") + 
+  scale_y_continuous(labels = scales::percent, name="CDRH3 AA\nidentity (%)") +
+  cowplot::theme_cowplot() + theme(axis.text.x = element_blank(),
+                                   axis.ticks.x = element_blank()) 
+
+cowplot::plot_grid(g1, g2, g3, g4, ncol = 1, axis = "lr", align = "v", rel_heights = c(1.5, 1.5, 1, 1))
+```
+
+Clusters of sequences with both repertoire sequences and known binders - what are the targets?
+
+```{r fig.width=7, fig.height=4}
+both_targets <- unique(membership[membership$cluster %in% membership_both,
+                                  c("Seq_ID", "cluster", "cluster_size", "SampleType2", "Specificity")])
+both_targets
+```
+
+Only 1 sequence converges with a known binder. Abandoned here.

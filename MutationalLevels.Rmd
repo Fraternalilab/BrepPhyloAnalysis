@@ -1,0 +1,689 @@
+---
+title: "Mutational levels"
+author: "Joseph Ng"
+date: "10 June 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.path = "MutationalLevels_plots/",
+                      dev = "svg")
+library(plyr)
+library(ggplot2)
+#library(shazam)
+
+```
+
+Analysis of mutational levels of BCR clones by using tree-based distances, in repertoires collected from individuals with different immunological states.
+
+```{r loaddata, include=FALSE}
+test_data <- read.table('/media/josephn/My_Passport/CovidRepertoire/AllCV+AllHC+AllRSV+AllEB_wo10XYF.txt', header = TRUE, sep = "\t",
+                      stringsAsFactors = FALSE)
+test_data <- test_data[ which(grepl("^IGH", test_data$Vfamily)), ]
+
+# set up age group
+test_data$AgeGroup <- test_data$Age
+test_data$AgeGroup[ which(as.numeric(test_data$Age) < 40 )] <-  "Young"
+test_data$AgeGroup[ which(as.numeric(test_data$Age) > 40 )] <-  "Middle"
+test_data$AgeGroup[ which(as.numeric(test_data$Age) > 65 )] <-  "Old"
+test_data$AgeGroup[ which(test_data$Age == "nd")] <- "?"
+test_data$AgeGroup[ which(test_data$Age == "Young")] <- "Young"
+colnames(test_data)[ncol(test_data)] <- "AgeGroup"
+
+# group RSV Day 0 as Healthy in a new SampleType definition
+test_data$SampleType2 <- test_data$SampleType
+test_data$SampleType2[which(test_data$SampleType %in% c("Infected", "Uninfected", "YF") & test_data$TimePoint == "0")] <- "Healthy"
+test_data$SampleType2[which(test_data$SampleType %in% c("COVID") & test_data$TimePoint == "FU")] <- "COVID-19Recovered"
+test_data$SampleType2[which(test_data$SampleType %in% c("COVID") & test_data$TimePoint != "FU")] <- "COVID-19"
+test_data$SampleType2[which(test_data$SampleType %in% c("Infected") & test_data$TimePoint == "10")] <- "RSV-I"
+test_data$SampleType2[which(test_data$SampleType %in% c("Uninfected") & test_data$TimePoint == "10")] <- "RSV-U"
+test_data$SampleType2[which(test_data$SampleType %in% c("EB"))] <- "Ebola"
+test_data$SampleType2[which(test_data$SampleType %in% c("YF") & test_data$TimePoint == "28")] <- "YFVD28"
+
+# MutationalStatus
+test_data$MutationalStatus <- sapply(test_data$V.REGION.identity.., function(x){
+  if(as.numeric(x) < 99) return("Mutated") else if (as.numeric(x) >= 99) return("Unmutated")
+  else return(NA)
+})
+
+# CellType
+test_data$CellType <- test_data$Subclass
+test_data$CellType[which(test_data$Subclass == "IgM" & test_data$MutationalStatus == "Unmutated" & test_data$NumInClone < 3)] <- "Naive"
+test_data$CellType[which(test_data$Subclass == "IgM" & test_data$MutationalStatus %in% c("Unmutated", "Mutated") & test_data$NumInClone >= 3)] <- "IgM memory"
+
+# CloneGroup
+test_data$CloneGroup <- sapply(test_data$NumInClone, function(x){
+  if(is.na(x)) return(NA)
+  if(x == 1) return("Unique")
+  else if(x == 2) return("2")
+  else if(x == 3) return("3")
+  else if(x %in% c(4, 5)) return("4&5")
+  else if(x %in% 6:9) return("6 to 9")
+  return(">10")
+})
+```
+
+# Distance-from-germline distribution of trees
+
+```{r eval=FALSE}
+all_trees <- c(
+  list.files(path = '/media/josefng/My_Passport/CovidRepertoire/CovidHB_alltrees/all_trees', full.names = TRUE),
+  list.files(path = '/media/josefng/My_Passport/CovidRepertoire/otherReps_alltrees/newTrees', full.names = TRUE)
+)
+distFromGermline <- lapply(all_trees, function(ts){
+  tree <- ape::read.tree(ts)
+  if( length(tree$tip.label) < 7 ) return(NULL)
+  root <- tree$tip.label[ which(grepl("^IG.V", tree$tip.label)) ]
+  dists <- igraph::distances(alakazam::phyloToGraph(tree, germline = root),
+                             v = root, 
+                             to = tree$tip.label[which(tree$tip.label != root)])
+  o <- data.frame(t(dists))
+  colnames(o) <- "distFromGermline"
+  o$SeqID <- rownames(o)
+  rownames(o) <- NULL
+  o[, c("SeqID", "distFromGermline")]
+})
+distFromGermline <- distFromGermline[ sapply( distFromGermline, 
+                                              function(x) !is.null(x)) ]
+distFromGermline <- do.call( "rbind", distFromGermline )
+saveRDS(distFromGermline, 'allreps_distFromGermline.rds')
+```
+
+```{r fig.width=11, fig.height=10}
+distFromGermline <- readRDS('allreps_distFromGermline.rds')
+# match sample/patient IDs, UseAsRef, V gene Subclass back to here:
+dist_metadata <- test_data[, c("Seq_ID", "SampleName", "PatientID", "Subclass",
+                               "V.GENE.and.allele", "V.REGION.identity..",
+                               "UseAsRef", "CloneID", "Class", "SampleType",
+                               "AgeGroup", "SampleType2", "TimePoint")]
+colnames(dist_metadata)[3] <- "PatientId"
+dist_metadata$CloneID <- apply(dist_metadata[, c("PatientId", "CloneID")],
+                               MARGIN = 1, function(x) paste(x[1], x[2], 
+                                                             sep = "_"))
+dist_metadata$CloneID <- gsub(" ", "", dist_metadata$CloneID)
+dist_metadata$Vmut <- 100 - dist_metadata$V.REGION.identity..
+distFromGermline <- merge(dist_metadata, distFromGermline, by.x = "Seq_ID",
+                          by.y = "SeqID", sort = FALSE, all.y = TRUE)
+distFromGermline <- distFromGermline[which(!is.na(distFromGermline$SampleName)), ]
+colnames(distFromGermline)[ncol(distFromGermline)] <- "dist"
+distFromGermline$Vmut_bin <- cut(distFromGermline$Vmut,
+                                 include.lowest = TRUE, breaks = unique(quantile(distFromGermline$Vmut, probs = seq(0, 1, length.out = 21))))
+distFromGermline$dist_bin <- ggplot2::cut_number(distFromGermline$dist, n = 20)
+saveRDS(distFromGermline, 'allreps_distFromGermline_annotated.rds')
+
+# count number of seqs in each bin and order the clones by median dist
+distFromGermline_count <- split(distFromGermline, f = distFromGermline$SampleType2)
+distFromGermline_count <- lapply(names(distFromGermline_count), function(x){
+  tb <- distFromGermline_count[[x]]
+  tb <- ddply(tb, .variables = c("CloneID", "dist_bin"), nrow, .drop = FALSE)
+  tb$SampleType2 <- x
+  tb
+})
+distFromGermline_count <- do.call("rbind", distFromGermline_count)
+colnames( distFromGermline_count )[ ncol(distFromGermline_count)-1 ] <- "count" 
+distFromGermline_count <- merge(distFromGermline_count,
+                                ddply(distFromGermline,
+                                      .variables = c("PatientId", "CloneID",
+                                                     "AgeGroup", "SampleType2"),
+                                      nrow))
+colnames( distFromGermline_count )[ ncol(distFromGermline_count) ] <- "total" 
+distFromGermline_count$perc <- distFromGermline_count$count / distFromGermline_count$total
+
+distFromGermline_median <- ddply(distFromGermline,
+                                 .variables = c("SampleType2", "PatientId", "CloneID"),
+                                 summarise,
+                                 dist_median = median(dist))
+distFromGermline_median <- distFromGermline_median[ order(distFromGermline_median$dist_median), ]
+distFromGermline_count$CloneID <- factor(distFromGermline_count$CloneID,
+                                         levels = unique(distFromGermline_median$CloneID))
+
+plotDistGermlineHeatmap <- function(tb, title)
+{
+  ggplot( tb, aes(x = dist_bin, y = CloneID, fill = perc)) + 
+    xlab("distance from germline") + geom_raster() + 
+    scale_fill_viridis_c(name = "% sequences", labels = scales::percent) +
+    ylab("Clones") + cowplot::theme_cowplot() + 
+    theme(axis.text = element_blank(), axis.ticks = element_blank()) +
+    facet_wrap(SampleType2 + AgeGroup ~ PatientId, scales = "free_y") +
+    ggtitle(title)
+}
+plotDistGermlineHeatmap(
+  distFromGermline_count[which(distFromGermline_count$SampleType2 == "Healthy"), ],
+  "all clones - Healthy"
+)
+```
+
+\newpage
+
+```{r fig.width=11, fig.height=10}
+plotDistGermlineHeatmap(
+  distFromGermline_count[which(distFromGermline_count$SampleType2 %in%
+                                         c("COVID-19", "COVID-19Recovered")), ],
+  "all clones - COVID-19"
+)
+```
+
+\newpage
+
+```{r fig.width=11, fig.height=10}
+plotDistGermlineHeatmap(
+  distFromGermline_count[which(distFromGermline_count$SampleType2 %in%
+                                         c("RSV-I", "RSV-U", "Ebola")), ],
+  "all clones - RSV + Ebola"
+)
+
+```
+
+\newpage
+
+These heatmaps can be transformed into a curve by taking the median distance-from-germline for each clone, and calculating the area-under-curve (AUC) which gives a metric per patient/donor for comparison. This AUC metric quanties **"Germline likeness"** of a repertoire in general. This is akin to sequence similarity of germline, but our metric quantifiers a given *repertoire* rather than a specific sequence.
+
+```{r }
+getDistPercentile <- function(dists, percentiles)
+{
+  sapply(dists, function(d){
+    min(which(d < percentiles))/100
+  })
+}
+
+# for each clone median / lower quartile / upper quartile of the 
+# dist-from-gerline of sequences in the clone
+distFromGermline_median <- ddply(distFromGermline,
+                                 .variables = c("PatientId", "CloneID",
+                                                "SampleType2", "AgeGroup"),
+                                 summarise,
+                                 dist_median = median(dist),
+                                 dist_lowerq = quantile(dist, probs = 0.25),
+                                 dist_upperq = quantile(dist, probs = 0.75))
+# convert into percentiles
+distFromGermline_median$dist_median <- getDistPercentile(
+  distFromGermline_median$dist_median,
+  quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median$dist_lowerq <- getDistPercentile(
+  distFromGermline_median$dist_lowerq,
+  quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median$dist_upperq <- getDistPercentile(
+  distFromGermline_median$dist_upperq,
+  quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median <- split(distFromGermline_median, 
+                                 f = list(distFromGermline_median$SampleType2,
+                                          distFromGermline_median$PatientId), 
+                                 drop = TRUE)
+# order the clone by median(dist-from-germline) and calculate percentile
+distFromGermline_median <- lapply(distFromGermline_median, function(tb){
+  tb <- tb[order(tb$dist_median), ]
+  tb$clone_order <- (1:nrow(tb)) / nrow(tb)
+  tb
+})
+distFromGermline_median <- do.call("rbind", distFromGermline_median)
+distFromGermline_median$SampleType2 <- factor(distFromGermline_median$SampleType2,
+                                          levels = c("Healthy", "COVID-19",
+                                                     "COVID-19Recovered",
+                                                     "Ebola", "RSV-I", "RSV-U",
+                                                     "YFVD28"))
+
+# clone percentile vs dist-from-germline percentile curves
+g1 <- ggplot(distFromGermline_median[which(!is.na(distFromGermline_median$SampleType2)), ], 
+       aes(x = dist_median, y = clone_order, 
+           group = interaction(SampleType2, PatientId), 
+           colour = SampleType2)) + geom_line() + 
+  scale_colour_brewer(type = "qual", drop = FALSE) +
+  xlab("relative dist-from-germline") + ylab("clone percentile") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  cowplot::theme_cowplot() + facet_wrap(~ SampleType2) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1))
+
+# calculate AUC
+getAUC <- function(tb)
+{
+  dDist <- c(diff(tb$dist_median), 0)
+  dClone <- c(diff(tb$clone_order), 0)
+  sum(tb$clone_order * dDist) + sum(dDist * dClone)/2
+}
+distFromGermline_AUC <- unique(distFromGermline_count[, c("PatientId", "SampleType2", "AgeGroup")])
+distFromGermline_median <- split(distFromGermline_median, 
+                                 f = list(distFromGermline_median$SampleType2,
+                                          distFromGermline_median$PatientId), 
+                                 drop = TRUE)
+distFromGermline_AUC$AUC <- apply(
+  distFromGermline_AUC, MARGIN = 1, 
+  function(x) getAUC(distFromGermline_median[[paste0(x[2], ".", x[1])]])
+)
+distFromGermline_AUC$SampleType2 <- factor(distFromGermline_AUC$SampleType2,
+                                          levels = c("Healthy", "COVID-19",
+                                                     "COVID-19Recovered",
+                                                     "Ebola", "RSV-I", "RSV-U",
+                                                     "YFVD28"))
+distFromGermline_AUC <- distFromGermline_AUC[which(!is.na(distFromGermline_AUC$SampleType2)), ]
+
+# statistical comparisons
+distFromGermline_AUC <- merge(
+  distFromGermline_AUC,
+  ggpubr::compare_means(AUC ~ SampleType2, data = distFromGermline_AUC, 
+                        hide.ns = TRUE, ref.group = "Healthy", 
+                        label = "p.signif")[, c("group2", "p.adj")],
+  by.x = "SampleType2", by.y = "group2", 
+  all.x = TRUE, all.y = FALSE, sort = FALSE
+)
+distFromGermline_AUC$sig <- ifelse(is.na(distFromGermline_AUC$p.adj), FALSE,
+                                   (distFromGermline_AUC$p.adj < 0.05))
+g2 <- ggplot(distFromGermline_AUC, aes(x = SampleType2, y = AUC, colour = sig)) + 
+  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_boxplot(outlier.shape = NA) + geom_point() +
+  scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), 
+                      name = "p < 0.05") +
+  cowplot::theme_cowplot() + xlab("") + ylab("Germline likeness") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        plot.margin = margin(10, 2, 2, 2), legend.position = "bottom")
+
+cowplot::plot_grid(g1, g2,
+                   nrow = 1, rel_widths = c(2,1))
+saveRDS(distFromGermline_AUC, "allreps_distFromGermline_AUC.rds")
+```
+
+\newpage
+
+## Split by time-points
+
+Is a concave curve (ie low AUC) a signature of convalescence and a convex curve indicative of B-cell response? 
+
+$\rightarrow$ If we split by time points (& specify follow-up if applicable) do we see different patterns across the timecourse?
+
+```{r}
+distFromGermline_median <- ddply(distFromGermline,
+                                 .variables = c("PatientId", "CloneID",
+                                                "SampleType", "AgeGroup",
+                                                "SampleName", "TimePoint"),
+                                 summarise,
+                                 dist_median = median(dist),
+                                 dist_lowerq = quantile(dist, probs = 0.25),
+                                 dist_upperq = quantile(dist, probs = 0.75))
+distFromGermline_median$dist_median <- getDistPercentile(
+  distFromGermline_median$dist_median,
+  quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median$dist_lowerq <- getDistPercentile(
+  distFromGermline_median$dist_lowerq,
+  quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median$dist_upperq <- getDistPercentile(
+  distFromGermline_median$dist_upperq,
+  quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median <- split(distFromGermline_median, 
+                                 f = distFromGermline_median$SampleName)
+distFromGermline_median <- lapply(distFromGermline_median, function(tb){
+  tb <- tb[order(tb$dist_median), ]
+  tb$clone_order <- (1:nrow(tb)) / nrow(tb)
+  tb
+})
+
+# calculate AUC
+distFromGermline_AUC_all <- distFromGermline_AUC
+distFromGermline_AUC <- unique(do.call("rbind", distFromGermline_median)[, c("PatientId", "SampleType", "AgeGroup", "SampleName", "TimePoint")])
+distFromGermline_AUC$AUC <- sapply(
+  distFromGermline_AUC$SampleName, 
+  function(x) getAUC(distFromGermline_median[[x]])
+)
+distFromGermline_AUC$SampleType <- factor(distFromGermline_AUC$SampleType,
+                                          levels = c("Healthy", "COVID", "EB",
+                                                     "Infected",
+                                                     "Uninfected", "YF"),
+                                          labels = c("Healthy", "COVID-19", "Ebola",
+                                                     "RSV-I", "RSV-U", "YFVD28"))
+distFromGermline_AUC$TimePoint <- factor(distFromGermline_AUC$TimePoint,
+                                         levels = c("0", "nd", "2", "3", "5",
+                                                    "6", "7", "8", "9", "10",
+                                                    "14", "22", "28", "A",
+                                                    "B", "FU"), ordered = TRUE)
+# remove the timepoints for the 1 RSV-I sample with multiple timepoints
+distFromGermline_AUC <- distFromGermline_AUC[(1:nrow(distFromGermline_AUC))[-which(distFromGermline_AUC$PatientId == "YR001" & ! distFromGermline_AUC$TimePoint %in% c("0", "10"))], ]
+
+ggplot(distFromGermline_AUC, aes(x = TimePoint, y = AUC, group = PatientId)) +
+  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_point(position = position_dodge()) + geom_line() + 
+  cowplot::theme_cowplot() + xlab("Timepoint") + ylab("Germline likeness") +
+  facet_wrap(~ SampleType, scales = "free_x")
+saveRDS(distFromGermline_AUC, "allreps_distFromGermline_splitTimepoint_AUC.rds")
+```
+
+Showing only COVID-19 with side-by-side Healthy and Ebola boxplots:
+
+```{r fig.width=3.5, fig.height=3}
+
+cowplot::plot_grid(
+  ggplot(distFromGermline_AUC_all[which(distFromGermline_AUC_all$SampleType2 %in% c("Healthy", "Ebola")),], aes(x = SampleType2, y = AUC)) + 
+  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_boxplot(outlier.shape = NA) + geom_point() + ylim(0, 1) +
+  cowplot::theme_cowplot() + xlab("") + ylab("Germline likeness") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        plot.margin = margin(10, 2, 2, 2), legend.position = "bottom"),
+  ggplot(distFromGermline_AUC[which(distFromGermline_AUC$SampleType == "COVID-19"), ], 
+         aes(x = TimePoint, y = AUC, group = PatientId)) +
+    geom_hline(yintercept = 0.5, linetype = "dashed") + ylim(0, 1) +
+    geom_point(position = position_dodge()) + geom_line() + 
+    cowplot::theme_cowplot() + xlab("Timepoint") + ylab("") +
+    facet_wrap(~ SampleType, scales = "free_x") +
+    theme(axis.line.y = element_blank(), axis.text.y = element_blank(), 
+          axis.ticks.y = element_blank()),
+  nrow = 1, align = "h", axis = "tb", rel_widths = c(2, 3)
+)
+
+# statistical test (Jonckheere-Terpstra test for trend)
+print(DescTools::JonckheereTerpstraTest(AUC ~ TimePoint, data = distFromGermline_AUC[which(distFromGermline_AUC$SampleType == "COVID-19"), ]))
+```
+
+\newpage
+
+## Correlation with metadata
+
+Does this correlate with any metadata?
+
+```{r, fig.width=8}
+cv_metadata <- read.table('CV_metadata.txt', header = TRUE,
+                          stringsAsFactors = FALSE, sep = "\t")
+cv_metadata <- merge(cv_metadata, 
+                     distFromGermline_AUC[which(distFromGermline_AUC$TimePoint == "0"), c("PatientId", "AUC")],
+                     by.x = "Patient", by.y = "PatientId")
+cv_metadata_grouped <- reshape2::melt(cv_metadata, id.vars = c("Patient", "AUC"),
+                                      measure.vars = c("SeverityScore", "Gender", "Age.group",
+                                                       "Oxygen.required.",
+                                                       "MADU.", "ICU."))
+cv_metadata_grouped$value <- factor(cv_metadata_grouped$value,
+                                    levels = c("M", "F", "Young", "Middle", "Older",
+                                               "Y", "N", "1", "2", "3", "4", "5", "6"))
+cv_metadata_grouped <- cv_metadata_grouped[which(cv_metadata_grouped$value != ""), ]
+
+cowplot::plot_grid(
+  cowplot::plot_grid(
+    ggplot(cv_metadata, aes(x = CRP.Levels..mg.L., y = AUC)) +
+      xlab("CRP (mg/L)") + ylab("Germline likeness (Day 0)") +
+      geom_point() + ggpubr::stat_cor(method = "spearman") +
+      cowplot::theme_cowplot(),
+    ggplot(cv_metadata, aes(x = Days.since.symptom.onset, y = AUC)) +
+      xlab("Days since symptom onset") + ylab("Germline likeness (Day 0)") +
+      geom_point() + ggpubr::stat_cor(method = "spearman", 
+                                      label.x = 14, label.y = 0.7) +
+      cowplot::theme_cowplot(),
+    nrow = 1, ncol = 2, axis = "tb", align = "h"
+  ),
+  ggplot(cv_metadata_grouped, aes(x = value, y = AUC)) +
+    geom_boxplot() + geom_point() + ylab("Germline likeness (Day 0)") + xlab("") +
+    cowplot::theme_cowplot() + facet_wrap(~ variable, scales = "free_x", nrow = 1) +
+    theme(axis.text.x = element_text(size = 9)),
+  nrow = 2, ncol = 1, axis = "lr", align = "v"
+)
+```
+
+## Split by isotypes
+
+Differences between isotypes?
+
+```{r fig.width=5.5, fig.height=6.5}
+distFromGermline_median <- ddply(distFromGermline,
+                                 .variables = c("PatientId", "CloneID",
+                                                "SampleType2", "AgeGroup", "Class"),
+                                 summarise,
+                                 dist_median = median(dist),
+                                 dist_lowerq = quantile(dist, probs = 0.25),
+                                 dist_upperq = quantile(dist, probs = 0.75))
+distFromGermline_median$dist_median <- getDistPercentile(
+  distFromGermline_median$dist_median,
+  quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median$dist_lowerq <- getDistPercentile(
+  distFromGermline_median$dist_lowerq,
+  quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median$dist_upperq <- getDistPercentile(
+  distFromGermline_median$dist_upperq,
+  quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median$PatientClass <- apply(distFromGermline_median[, c("SampleType2", "PatientId", "Class")], MARGIN = 1, function(x) paste(x[1], x[2], x[3], sep = "_"))
+distFromGermline_median <- distFromGermline_median[which(!grepl("_NA$", distFromGermline_median$PatientClass)), ]
+distFromGermline_median <- split(distFromGermline_median, 
+                                 f = distFromGermline_median$PatientClass)
+distFromGermline_median <- lapply(distFromGermline_median, function(tb){
+  tb <- tb[order(tb$dist_median), ]
+  tb$clone_order <- (1:nrow(tb)) / nrow(tb)
+  tb
+})
+
+# calculate AUC
+distFromGermline_AUC <- unique(do.call("rbind", distFromGermline_median)[, c("PatientId", "SampleType2", "AgeGroup", "Class", "PatientClass")])
+distFromGermline_AUC$AUC <- sapply(
+  distFromGermline_AUC$PatientClass, 
+  function(x) getAUC(distFromGermline_median[[x]])
+)
+distFromGermline_AUC$SampleType2 <- factor(distFromGermline_AUC$SampleType2,
+                                          levels = c("Healthy", "COVID-19",
+                                                     "COVID-19Recovered",
+                                                     "Ebola", "RSV-I", "RSV-U",
+                                                     "YFVD28"))
+distFromGermline_AUC <- distFromGermline_AUC[which(!is.na(distFromGermline_AUC$SampleType2)), ]
+distFromGermline_AUC$Class <- factor(distFromGermline_AUC$Class,
+                                     levels = c("M", "G", "A"),
+                                     labels = c("IgM", "IgG", "IgA"))
+distFromGermline_AUC <- distFromGermline_AUC[which(!is.na(distFromGermline_AUC$Class)), ]
+distFromGermline_AUC <- merge(
+  distFromGermline_AUC,
+  ggpubr::compare_means(AUC ~ Class, data = distFromGermline_AUC, 
+                        group.by = "SampleType2", label = "p.signif", hide.ns = TRUE,
+                        ref.group = "IgM", label.y = 0.85)[, c("group2", "SampleType2", "p.adj")],
+  by.x = c("SampleType2", "Class"), by.y = c("SampleType2", "group2"),
+  all.x = TRUE, all.y = TRUE, sort = FALSE
+)
+distFromGermline_AUC$sig <- ifelse(is.na(distFromGermline_AUC$p.adj), FALSE,
+                                   (distFromGermline_AUC$p.adj < 0.05))
+ggplot(distFromGermline_AUC, aes(x = Class, y = AUC, colour = sig)) +
+  geom_line(aes(group = PatientId), colour = "grey") + 
+  geom_hline(yintercept = 0.5, linetype = "dashed") + geom_boxplot() +
+  geom_point(position = position_dodge()) + 
+  scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), 
+                      name = "p < 0.05") + ylab("Germline likeness") +
+  cowplot::theme_cowplot() + xlab("") + ylim(0, 1) +
+  facet_wrap(~ SampleType2, scales = "free_x")
+saveRDS(distFromGermline_AUC, "allreps_distFromGermline_splitIsotype_AUC.rds")
+
+```
+
+\newpage
+
+## Split by subclasses
+
+Differences between subclasses:
+
+```{r fig.width=7, fig.height=8}
+distFromGermline_median <- ddply(distFromGermline,
+                                 .variables = c("PatientId", "CloneID",
+                                                "SampleType2", "AgeGroup", "Subclass"),
+                                 summarise,
+                                 dist_median = median(dist),
+                                 dist_lowerq = quantile(dist, probs = 0.25),
+                                 dist_upperq = quantile(dist, probs = 0.75))
+distFromGermline_median$dist_median <- getDistPercentile(
+  distFromGermline_median$dist_median,
+  quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median$dist_lowerq <- getDistPercentile(
+  distFromGermline_median$dist_lowerq,
+  quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median$dist_upperq <- getDistPercentile(
+  distFromGermline_median$dist_upperq,
+  quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median$PatientClass <- apply(distFromGermline_median[, c("SampleType2", "PatientId", "Subclass")], MARGIN = 1, function(x) paste(x[1], x[2], x[3], sep = "_"))
+distFromGermline_median <- distFromGermline_median[which(!grepl("_NA$|[AG]$", distFromGermline_median$PatientClass)), ]
+distFromGermline_median <- split(distFromGermline_median, 
+                                 f = distFromGermline_median$PatientClass)
+distFromGermline_median <- lapply(distFromGermline_median, function(tb){
+  tb <- tb[order(tb$dist_median), ]
+  tb$clone_order <- (1:nrow(tb)) / nrow(tb)
+  tb
+})
+
+# calculate AUC
+distFromGermline_AUC <- unique(do.call("rbind", distFromGermline_median)[, c("PatientId", "SampleType2", "AgeGroup", "Subclass", "PatientClass")])
+distFromGermline_AUC$AUC <- sapply(
+  distFromGermline_AUC$PatientClass, 
+  function(x) getAUC(distFromGermline_median[[x]])
+)
+distFromGermline_AUC$SampleType2 <- factor(distFromGermline_AUC$SampleType2,
+                                          levels = c("Healthy", "COVID-19",
+                                                     "COVID-19Recovered",
+                                                     "Ebola", "RSV-I", "RSV-U",
+                                                     "YFVD28"))
+distFromGermline_AUC <- distFromGermline_AUC[which(!is.na(distFromGermline_AUC$SampleType2)), ]
+distFromGermline_AUC$Subclass <- factor(distFromGermline_AUC$Subclass,
+                                     levels = c("IgM", "IgG1", "IgG2", "IgG3", "IgG4",
+                                                "IgA1", "IgA2"))
+distFromGermline_AUC <- distFromGermline_AUC[which(!is.na(distFromGermline_AUC$Subclass)), ]
+distFromGermline_AUC <- merge(
+  distFromGermline_AUC,
+  ggpubr::compare_means(AUC ~ Subclass, data = distFromGermline_AUC, 
+                        group.by = "SampleType2", label = "p.signif", hide.ns = TRUE,
+                        ref.group = "IgM", label.y = 0.85)[, c("group2", "SampleType2", "p.adj")],
+  by.x = c("SampleType2", "Subclass"), by.y = c("SampleType2", "group2"),
+  all.x = TRUE, all.y = TRUE, sort = FALSE
+)
+distFromGermline_AUC$sig <- ifelse(is.na(distFromGermline_AUC$p.adj), FALSE,
+                                   (distFromGermline_AUC$p.adj < 0.05))
+ggplot(distFromGermline_AUC, aes(x = Subclass, y = AUC, colour = sig)) +
+  geom_hline(yintercept = 0.5, linetype = "dashed") + geom_boxplot() +
+  geom_point(position = position_dodge()) + #geom_line(aes(group = PatientId)) + 
+  scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), name = "p < 0.05") +
+  cowplot::theme_cowplot() + xlab("") + ylim(0, 1) +
+  facet_wrap(~ SampleType2) + ylab("Germline likeness") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+saveRDS(distFromGermline_AUC, "allreps_distFromGermline_splitSubclass_AUC_all.rds")
+```
+
+
+## Is it the same if we consider sequence identity to the germline?
+
+Use the V-region identity column from VQuest:
+
+```{r fig.width=11, fig.height=10}
+# count number of seqs in each bin and order the clones by median dist
+distFromGermline_count <- split(distFromGermline, f = distFromGermline$SampleType2)
+distFromGermline_count <- lapply(names(distFromGermline_count), function(x){
+  tb <- distFromGermline_count[[x]]
+  tb <- ddply(tb, .variables = c("CloneID", "Vmut_bin"), nrow, .drop = FALSE)
+  tb$SampleType2 <- x
+  tb
+})
+distFromGermline_count <- do.call("rbind", distFromGermline_count)
+colnames( distFromGermline_count )[ ncol(distFromGermline_count)-1 ] <- "count" 
+distFromGermline_count <- merge(distFromGermline_count,
+                                ddply(distFromGermline,
+                                      .variables = c("PatientId", "CloneID",
+                                                     "AgeGroup", "SampleType2"),
+                                      nrow))
+colnames( distFromGermline_count )[ ncol(distFromGermline_count) ] <- "total" 
+distFromGermline_count$perc <- distFromGermline_count$count / distFromGermline_count$total
+
+distFromGermline_median <- ddply(distFromGermline,
+                                 .variables = c("SampleType2", "PatientId", "CloneID"),
+                                 summarise,
+                                 dist_median = median(Vmut))
+distFromGermline_median <- distFromGermline_median[ order(distFromGermline_median$dist_median), ]
+distFromGermline_count$CloneID <- factor(distFromGermline_count$CloneID,
+                                         levels = unique(distFromGermline_median$CloneID))
+colnames(distFromGermline_count)[3] <- "dist_bin"
+
+```
+
+```{r }
+# for each clone the median / lower quartile / upper quartile of the 
+# (1 - % identity to V germline) distribution of all sequences in the clone
+distFromGermline_median <- ddply(distFromGermline,
+                                 .variables = c("PatientId", "CloneID",
+                                                "SampleType2", "AgeGroup"),
+                                 summarise,
+                                 dist_median = median(Vmut),
+                                 dist_lowerq = quantile(Vmut, probs = 0.25),
+                                 dist_upperq = quantile(Vmut, probs = 0.75))
+# convert to percentile
+distFromGermline_median$dist_median <- getDistPercentile(
+  distFromGermline_median$dist_median,
+  quantile(distFromGermline$Vmut, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median$dist_lowerq <- getDistPercentile(
+  distFromGermline_median$dist_lowerq,
+  quantile(distFromGermline$Vmut, probs = seq(0.01, 1, by = 0.01))
+)
+distFromGermline_median$dist_upperq <- getDistPercentile(
+  distFromGermline_median$dist_upperq,
+  quantile(distFromGermline$Vmut, probs = seq(0.01, 1, by = 0.01))
+)
+
+# order the clones by median % identity to germline and convert into a percentil
+distFromGermline_median <- split(distFromGermline_median, 
+                                 f = list(distFromGermline_median$SampleType2,
+                                          distFromGermline_median$PatientId),
+                                 drop = TRUE)
+distFromGermline_median <- lapply(distFromGermline_median, function(tb){
+  tb <- tb[order(tb$dist_median), ]
+  tb$clone_order <- (1:nrow(tb)) / nrow(tb)
+  tb
+})
+distFromGermline_median <- do.call("rbind", distFromGermline_median)
+distFromGermline_median$SampleType2 <- factor(distFromGermline_median$SampleType2,
+                                          levels = c("Healthy", "COVID-19",
+                                                     "COVID-19Recovered",
+                                                     "Ebola", "RSV-I", "RSV-U",
+                                                     "YFVD28"))
+
+# clone percentile vs V-identity percentile
+g1 <- ggplot(distFromGermline_median[which(!is.na(distFromGermline_median$SampleType2)), ], 
+       aes(x = dist_median, y = clone_order, 
+           group = interaction(SampleType2, PatientId), 
+           colour = SampleType2)) + geom_line() + 
+  scale_colour_brewer(type = "qual", drop = FALSE) +
+  xlab("1 - V-gene identity to germline(%)") + ylab("clone percentile") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  cowplot::theme_cowplot() + facet_wrap(~ SampleType2) +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, hjust = 1))
+
+# calculate AUC
+distFromGermline_AUC <- unique(distFromGermline_count[, c("PatientId", "SampleType2", "AgeGroup")])
+distFromGermline_median <- split(distFromGermline_median, 
+                                 f = list(distFromGermline_median$SampleType2,
+                                          distFromGermline_median$PatientId), 
+                                 drop = TRUE)
+distFromGermline_AUC$AUC <- apply(
+  distFromGermline_AUC, MARGIN = 1, 
+  function(x) getAUC(distFromGermline_median[[paste0(x[2], ".", x[1])]])
+)
+distFromGermline_AUC$SampleType2 <- factor(distFromGermline_AUC$SampleType2,
+                                          levels = c("Healthy", "COVID-19",
+                                                     "COVID-19Recovered",
+                                                     "Ebola", "RSV-I", "RSV-U",
+                                                     "YFVD28"))
+distFromGermline_AUC <- distFromGermline_AUC[which(!is.na(distFromGermline_AUC$SampleType2)), ]
+distFromGermline_AUC <- merge(
+  distFromGermline_AUC,
+  ggpubr::compare_means(AUC ~ SampleType2, data = distFromGermline_AUC, hide.ns = TRUE, ref.group = "Healthy", label = "p.signif")[, c("group2", "p.adj")],
+  by.x = "SampleType2", by.y = "group2", all.x = TRUE, all.y = FALSE, sort = FALSE
+)
+distFromGermline_AUC$sig <- ifelse(is.na(distFromGermline_AUC$p.adj), FALSE,
+                                   (distFromGermline_AUC$p.adj < 0.05))
+g2 <- ggplot(distFromGermline_AUC, aes(x = SampleType2, y = AUC, colour = sig)) + 
+  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_boxplot(outlier.shape = NA) + geom_point() +
+  scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), 
+                      name = "p < 0.05") +
+  cowplot::theme_cowplot() + xlab("") + ylab("Germline likeness") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        plot.margin = margin(10, 2, 2, 2), legend.position = "bottom")
+
+cowplot::plot_grid(g1, g2,
+                   nrow = 1, rel_widths = c(2,1))
+saveRDS(distFromGermline_AUC, "allreps_Videntity_AUC.rds")
+```
+
+Same picture as in the dist-from-germline derived from trees.
