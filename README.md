@@ -9,13 +9,13 @@ This repository contain R markdown notebooks for analysis performed for this wor
 
 ### Markdown & Notebooks
 
-* `ClonalDiversity`: Analysis of clonal diversity (clone size, gini diversity etc) 
-* `convergence-ebola`: Analysis for 'convergent' sequences from the repertoire shared across Ebola patients, and converging towards known binders of Ebola virus proteins from the literature.
-* `convergence-covid`: Analysis for 'convergent' sequences from the repertoire shared across COVID-19 patients, and converging towards known binders of SARS-CoV-2 proteins from the literature.
-* `convergence-RSV`: Analysis for 'convergent' sequences from the repertoire shared across volunteers (infected/uninfected) in the RSV live challenge trial, and converging towards known binders of RSV proteins from the literature.
-* `CSR`: Analysis of frequency and distance-from-germline of Class-Switch Recombination events detected from lineage trees.
-* `GeneUsage`: Analysis of V, D, J gene usage. Separation by age groups.
-* `MutationalLevels`: Analysis of mutational levels in lineage trees.
+* `ClonalDiversity`: Analysis of clonal diversity (clone size, gini diversity etc) ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/ClonalDiversity.html))
+* `convergence-ebola`: Analysis for 'convergent' sequences from the repertoire shared across Ebola patients, and converging towards known binders of Ebola virus proteins from the literature. ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/convergence-ebola.html))
+* `convergence-covid`: Analysis for 'convergent' sequences from the repertoire shared across COVID-19 patients, and converging towards known binders of SARS-CoV-2 proteins from the literature. ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/convergence-covid.html))
+* `convergence-RSV`: Analysis for 'convergent' sequences from the repertoire shared across volunteers (infected/uninfected) in the RSV live challenge trial, and converging towards known binders of RSV proteins from the literature. ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/convergence-RSV.html))
+* `CSR`: Analysis of frequency and distance-from-germline of Class-Switch Recombination events detected from lineage trees. ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/CSR.html))
+* `GeneUsage`: Analysis of V, D, J gene usage. Separation by age groups. ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/GeneUsage.html))
+* `MutationalLevels`: Analysis of mutational levels in lineage trees. ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/MutationalLevels.html))
 
 ### Folders
 
