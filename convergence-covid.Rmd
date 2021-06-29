@@ -221,14 +221,16 @@ membership$SampleType2 <- membership$Specificity
 saveRDS(membership, 'convergent_cluster_membership.rds')
 ```
 
-```{r, fig.width=6, fig.height=7}
+```{r, fig.width=8, fig.height=7}
 # largest clusters & V/J gene use
-cluster_summary <- membership[, c("cluster", "cluster_size", "SampleType2", "Vgene", "Jfamily", "both")]
+cluster_summary <- membership[, c("Seq_ID", "cluster", "cluster_size", "SampleType2", 
+                                  "Vgene", "Jfamily", "PatientID", "both")]
 cluster_summary <- cluster_summary[order(cluster_summary$cluster_size, decreasing = TRUE), ]
 cluster_large <- cluster_summary[which(cluster_summary$cluster_size >= 10), ]
 cluster_large$SampleType2 <- replace(cluster_large$SampleType2, which(cluster_large$SampleType2 == "PDB"),
                                      "Spike/RBD")
-cluster_large <- ddply(cluster_large, c("cluster", "cluster_size", "Vgene", "Jfamily", "SampleType2"), nrow)
+cluster_large <- ddply(cluster_large, c("cluster", "cluster_size", "Vgene", "Jfamily", "SampleType2"), 
+                       summarise, V1 = length(Seq_ID), n_patients = length(unique(PatientID)))
 cluster_large$cluster <- factor(cluster_large$cluster, 
                                 levels = unique(cluster_large$cluster[order(cluster_large$cluster_size, 
                                                                             decreasing = TRUE)]))
@@ -247,8 +249,15 @@ g2 <- ggplot(cluster_large, aes(x = cluster, y = Vgene)) + geom_tile(fill = "bla
 g3 <- ggplot(cluster_large, aes(x = cluster, y = Jfamily)) + geom_tile(fill = "black") +
   cowplot::theme_cowplot() + theme(axis.text.x = element_blank(),
                                    axis.ticks.x = element_blank()) + xlab("Convergent clusters") +ylab("J usage")
+# Number of patients with sequences in a cluster
+g4 <- ggplot(cluster_large[which( !grepl("Spike", cluster_large$SampleType2)), ], 
+             aes(x = cluster, y = n_patients)) + 
+  geom_bar(stat = "identity") + xlab("Convergent clusters") + 
+  scale_y_continuous(name="No. of\npatients") +
+  cowplot::theme_cowplot() + theme(axis.text.x = element_blank(),
+                                   axis.ticks.x = element_blank()) 
 
-cowplot::plot_grid(g1, g2, g3, ncol = 1, axis = "lr", align = "v", rel_heights = c(2, 3, 1))
+cowplot::plot_grid(g1, g2, g3, g4, ncol = 1, axis = "lr", align = "v", rel_heights = c(2, 3, 1, 1))
 ```
 
 Clusters of sequences with both repertoire sequences and known binders - what are the targets?
