@@ -271,7 +271,8 @@ distFromGermline_AUC <- merge(
 distFromGermline_AUC$sig <- ifelse(is.na(distFromGermline_AUC$p.adj), FALSE,
                                    (distFromGermline_AUC$p.adj < 0.05))
 g2 <- ggplot(distFromGermline_AUC, aes(x = SampleType2, y = AUC, colour = sig)) + 
-  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_hline(yintercept = median(distFromGermline_AUC[ which(distFromGermline_AUC$SampleType == "Healthy"), "AUC"],
+                                 na.rm = TRUE), linetype = "dashed") +
   geom_boxplot(outlier.shape = NA) + geom_point() +
   scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), 
                       name = "p < 0.05") +
@@ -343,7 +344,8 @@ distFromGermline_AUC$TimePoint <- factor(distFromGermline_AUC$TimePoint,
 distFromGermline_AUC <- distFromGermline_AUC[(1:nrow(distFromGermline_AUC))[-which(distFromGermline_AUC$PatientId == "YR001" & ! distFromGermline_AUC$TimePoint %in% c("0", "10"))], ]
 
 ggplot(distFromGermline_AUC, aes(x = TimePoint, y = AUC, group = PatientId)) +
-  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_hline(yintercept = median(distFromGermline_AUC[ which(distFromGermline_AUC$SampleType == "Healthy"), "AUC"],
+                                 na.rm = TRUE), linetype = "dashed") +
   geom_point(position = position_dodge()) + geom_line() + 
   cowplot::theme_cowplot() + xlab("Timepoint") + ylab("Germline likeness") +
   facet_wrap(~ SampleType, scales = "free_x")
@@ -356,14 +358,16 @@ Showing only COVID-19 with side-by-side Healthy and Ebola boxplots:
 
 cowplot::plot_grid(
   ggplot(distFromGermline_AUC_all[which(distFromGermline_AUC_all$SampleType2 %in% c("Healthy", "Ebola")),], aes(x = SampleType2, y = AUC)) + 
-  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_hline(yintercept = median(distFromGermline_AUC[ which(distFromGermline_AUC$SampleType == "Healthy"), "AUC"],
+                                 na.rm = TRUE), linetype = "dashed") +
   geom_boxplot(outlier.shape = NA) + geom_point() + ylim(0, 1) +
   cowplot::theme_cowplot() + xlab("") + ylab("Germline likeness") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), 
         plot.margin = margin(10, 2, 2, 2), legend.position = "bottom"),
   ggplot(distFromGermline_AUC[which(distFromGermline_AUC$SampleType == "COVID-19"), ], 
          aes(x = TimePoint, y = AUC, group = PatientId)) +
-    geom_hline(yintercept = 0.5, linetype = "dashed") + ylim(0, 1) +
+    geom_hline(yintercept = median(distFromGermline_AUC[ which(distFromGermline_AUC$SampleType == "Healthy"), "AUC"],
+                                 na.rm = TRUE), linetype = "dashed") + ylim(0, 1) +
     geom_point(position = position_dodge()) + geom_line() + 
     cowplot::theme_cowplot() + xlab("Timepoint") + ylab("") +
     facet_wrap(~ SampleType, scales = "free_x") +
@@ -377,46 +381,6 @@ print(DescTools::JonckheereTerpstraTest(AUC ~ TimePoint, data = distFromGermline
 ```
 
 \newpage
-
-## Correlation with metadata
-
-Does this correlate with any metadata?
-
-```{r, fig.width=8}
-cv_metadata <- read.table('CV_metadata.txt', header = TRUE,
-                          stringsAsFactors = FALSE, sep = "\t")
-cv_metadata <- merge(cv_metadata, 
-                     distFromGermline_AUC[which(distFromGermline_AUC$TimePoint == "0"), c("PatientId", "AUC")],
-                     by.x = "Patient", by.y = "PatientId")
-cv_metadata_grouped <- reshape2::melt(cv_metadata, id.vars = c("Patient", "AUC"),
-                                      measure.vars = c("SeverityScore", "Gender", "Age.group",
-                                                       "Oxygen.required.",
-                                                       "MADU.", "ICU."))
-cv_metadata_grouped$value <- factor(cv_metadata_grouped$value,
-                                    levels = c("M", "F", "Young", "Middle", "Older",
-                                               "Y", "N", "1", "2", "3", "4", "5", "6"))
-cv_metadata_grouped <- cv_metadata_grouped[which(cv_metadata_grouped$value != ""), ]
-
-cowplot::plot_grid(
-  cowplot::plot_grid(
-    ggplot(cv_metadata, aes(x = CRP.Levels..mg.L., y = AUC)) +
-      xlab("CRP (mg/L)") + ylab("Germline likeness (Day 0)") +
-      geom_point() + ggpubr::stat_cor(method = "spearman") +
-      cowplot::theme_cowplot(),
-    ggplot(cv_metadata, aes(x = Days.since.symptom.onset, y = AUC)) +
-      xlab("Days since symptom onset") + ylab("Germline likeness (Day 0)") +
-      geom_point() + ggpubr::stat_cor(method = "spearman", 
-                                      label.x = 14, label.y = 0.7) +
-      cowplot::theme_cowplot(),
-    nrow = 1, ncol = 2, axis = "tb", align = "h"
-  ),
-  ggplot(cv_metadata_grouped, aes(x = value, y = AUC)) +
-    geom_boxplot() + geom_point() + ylab("Germline likeness (Day 0)") + xlab("") +
-    cowplot::theme_cowplot() + facet_wrap(~ variable, scales = "free_x", nrow = 1) +
-    theme(axis.text.x = element_text(size = 9)),
-  nrow = 2, ncol = 1, axis = "lr", align = "v"
-)
-```
 
 ## Split by isotypes
 
@@ -480,7 +444,9 @@ distFromGermline_AUC$sig <- ifelse(is.na(distFromGermline_AUC$p.adj), FALSE,
                                    (distFromGermline_AUC$p.adj < 0.05))
 ggplot(distFromGermline_AUC, aes(x = Class, y = AUC, colour = sig)) +
   geom_line(aes(group = PatientId), colour = "grey") + 
-  geom_hline(yintercept = 0.5, linetype = "dashed") + geom_boxplot() +
+  geom_hline(yintercept = median(distFromGermline_AUC[ which(distFromGermline_AUC$SampleType == "Healthy" &
+                                                               distFromGermline_AUC$Class == "IgM"), "AUC"],
+                                 na.rm = TRUE), linetype = "dashed") + geom_boxplot() +
   geom_point(position = position_dodge()) + 
   scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), 
                       name = "p < 0.05") + ylab("Germline likeness") +
@@ -553,7 +519,9 @@ distFromGermline_AUC <- merge(
 distFromGermline_AUC$sig <- ifelse(is.na(distFromGermline_AUC$p.adj), FALSE,
                                    (distFromGermline_AUC$p.adj < 0.05))
 ggplot(distFromGermline_AUC, aes(x = Subclass, y = AUC, colour = sig)) +
-  geom_hline(yintercept = 0.5, linetype = "dashed") + geom_boxplot() +
+  geom_hline(yintercept = median(distFromGermline_AUC[ which(distFromGermline_AUC$SampleType == "Healthy" &
+                                                               distFromGermline_AUC$Subclass == "IgM"), "AUC"],
+                                 na.rm = TRUE), linetype = "dashed") + geom_boxplot() +
   geom_point(position = position_dodge()) + #geom_line(aes(group = PatientId)) + 
   scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), name = "p < 0.05") +
   cowplot::theme_cowplot() + xlab("") + ylim(0, 1) +
@@ -673,7 +641,8 @@ distFromGermline_AUC <- merge(
 distFromGermline_AUC$sig <- ifelse(is.na(distFromGermline_AUC$p.adj), FALSE,
                                    (distFromGermline_AUC$p.adj < 0.05))
 g2 <- ggplot(distFromGermline_AUC, aes(x = SampleType2, y = AUC, colour = sig)) + 
-  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_hline(yintercept = median(distFromGermline_AUC[ which(distFromGermline_AUC$SampleType == "Healthy"), "AUC"],
+                                 na.rm = TRUE), linetype = "dashed") +
   geom_boxplot(outlier.shape = NA) + geom_point() +
   scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), 
                       name = "p < 0.05") +
