@@ -343,11 +343,11 @@ visualiseNetwork(converge_graph, membership[membership$cluster == 591, 1], clust
                  node_annotation = converge_nodes)
 visualiseNetwork(converge_graph, membership[membership$cluster == 676, 1], cluster = 676,
                  node_annotation = converge_nodes)
-visualiseNetwork(converge_graph, membership[membership$cluster == 1239, 1], cluster = 1239,
+visualiseNetwork(converge_graph, membership[membership$cluster == 1237, 1], cluster = 1237,
                  node_annotation = converge_nodes)
-visualiseNetwork(converge_graph, membership[membership$cluster == 1479, 1], cluster = 1479,
+visualiseNetwork(converge_graph, membership[membership$cluster == 1477, 1], cluster = 1477,
                  node_annotation = converge_nodes)
-visualiseNetwork(converge_graph, membership[membership$cluster == 1888, 1], cluster = 1888,
+visualiseNetwork(converge_graph, membership[membership$cluster == 1887, 1], cluster = 1887,
                  node_annotation = converge_nodes)
 
 ```
@@ -355,7 +355,7 @@ visualiseNetwork(converge_graph, membership[membership$cluster == 1888, 1], clus
 CDRH3 AA Sequence logos of these clusters:
 
 ```{r fig.width=5, fig.height=5}
-seqs <- membership[membership$cluster %in% c(591, 676, 1239, 1479, 1888), c("Seq_ID", "cluster", "CDRH3")]
+seqs <- membership[membership$cluster %in% c(591, 676, 1237, 1477, 1887), c("Seq_ID", "cluster", "CDRH3")]
 seqs <- merge(seqs, ddply(seqs, "cluster", nrow), by = "cluster")
 seqs$cluster <- paste0("Cluster ", seqs$cluster, "\n(n = ", seqs$V1, ")")
 
@@ -372,18 +372,18 @@ cowplot::plot_grid(
     theme_cowplot() + theme(legend.position = "none", axis.text = element_blank(), axis.ticks = element_blank(),
                             axis.line = element_blank(), axis.title.y = element_text(angle = 0, vjust = 0.5)),
   # cluster 1239
-  ggseqlogo(seqs[which(grepl("Cluster 1239", seqs$cluster)), "CDRH3"]) +
-    ylab(unique(seqs[which(grepl("Cluster 1239", seqs$cluster)), "cluster"])) +
+  ggseqlogo(seqs[which(grepl("Cluster 1237", seqs$cluster)), "CDRH3"]) +
+    ylab(unique(seqs[which(grepl("Cluster 1237", seqs$cluster)), "cluster"])) +
     theme_cowplot() + theme(legend.position = "none", axis.text = element_blank(), axis.ticks = element_blank(), 
                             axis.line = element_blank(), axis.title.y = element_text(angle = 0, vjust = 0.5)),
   # cluster 1479
-  ggseqlogo(seqs[which(grepl("Cluster 1479", seqs$cluster)), "CDRH3"]) +
-    ylab(unique(seqs[which(grepl("Cluster 1479", seqs$cluster)), "cluster"])) +
+  ggseqlogo(seqs[which(grepl("Cluster 1477", seqs$cluster)), "CDRH3"]) +
+    ylab(unique(seqs[which(grepl("Cluster 1477", seqs$cluster)), "cluster"])) +
     theme_cowplot() + theme(legend.position = "none", axis.text = element_blank(), axis.ticks = element_blank(), 
                             axis.line = element_blank(), axis.title.y = element_text(angle = 0, vjust = 0.5)),
   # cluster 1888
-  ggseqlogo(seqs[which(grepl("Cluster 1888", seqs$cluster)), "CDRH3"]) +
-    ylab(unique(seqs[which(grepl("Cluster 1888", seqs$cluster)), "cluster"])) +
+  ggseqlogo(seqs[which(grepl("Cluster 1887", seqs$cluster)), "CDRH3"]) +
+    ylab(unique(seqs[which(grepl("Cluster 1887", seqs$cluster)), "cluster"])) +
     theme_cowplot() + theme(legend.position = "none", axis.text = element_blank(), axis.ticks = element_blank(), 
                             axis.line = element_blank(), axis.title.y = element_text(angle = 0, vjust = 0.5)),
   align = "v", axis = "lr", ncol = 1
