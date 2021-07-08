@@ -75,7 +75,9 @@ seq_counts <- ddply(test_data, c("SampleType2", "PatientID"), summarise,
 seq_counts <- seq_counts[which(seq_counts$SampleType2 != "Infected"), ]
 seq_counts$SampleType2 <- factor(seq_counts$SampleType2,
                                  levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola",
-                                            "RSV-I", "RSV-U", "YFVD28"))
+                                            "RSV-I", "RSV-U", "YFVD28"),
+                                 labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV", "RSV-I",
+                                            "RSV-U", "YFVD28"))
 ggplot(seq_counts, aes(x = n_sequences, y = n_clone)) +
   geom_smooth(method = "lm") + geom_point(aes(colour = SampleType2), size = 2) +
   scale_color_brewer(name = "Sample Type", type = "qual") +
@@ -98,9 +100,9 @@ A measure of (un)evenness known as "Gini coefficient" has been used recently to 
 
 Largest 5 clones for each individual. Show at most 100 clones per patchwork.
 
-```{r fig.width = 9, fig.height=10}
+```{r eval=FALSE}
 clones <- test_data[which(test_data$UseAsRef & test_data$V.DOMAIN.Functionality != "No rearrangement found"),
-            c(which(colnames(test_data) %in% c("SampleType2", "PatientID", "CloneID",
+            c(which(colnames(test_data) %in% c("SampleType2", "PatientID", "CloneID", "Age",
                                                "Vfamily", "Vgene", "Dgene", "Jfamily")))]
 # clone size by isotype
 clone_count <- ddply(test_data, c("SampleType2", "PatientID", "CloneID"), summarise,
@@ -125,7 +127,7 @@ clones <- merge(clones, repertoire_size, by = c("SampleType2", "PatientID"),
                 sort = FALSE)
 
 clones <- reshape2::melt(clones,
-                         id.vars = c("SampleType2", "PatientID", "CloneID",
+                         id.vars = c("SampleType2", "PatientID", "Age", "CloneID",
                                      "Vfamily", "Vgene", "Dgene", "Jfamily", "repsize"),
                          measure.vars = c("NumInClone", "IgM_memory", "IgM_naive", "IgG1", "IgG2",
                                           "IgG3", "IgG4", "IgA1", "IgA2"))
@@ -144,7 +146,10 @@ top_bound <- ddply(clones, c("SampleType2", "PatientID", "variable"), summarise,
 clones <- merge(clones, top_bound, by = c("SampleType2", "PatientID", "variable"), sort = FALSE)
 clones$large <- (clones$value >= clones$bound)
 saveRDS(clones, "all_clones_count.rds")
+```
 
+```{r fig.width = 9, fig.height=10}
+clones <- readRDS('all_clones_count.rds')
 clones_large <- clones[which(clones$large),]
 # random initialisation in 2D axes
 clones_large$x <- runif(nrow(clones_large))
@@ -154,7 +159,7 @@ clones_large$y <- runif(nrow(clones_large))
 clones_large$variable <- factor(clones_large$variable,
                           levels = c("NumInClone", "IgM_naive", "IgM_memory", "IgG1", "IgG2",
                                      "IgG3", "IgG4", "IgA1", "IgA2"),
-                          labels = c("all", "Naive", "IgM memory", "IgG1", "IgG2",
+                          labels = c("all", "IgM unmutated", "IgM mutated", "IgG1", "IgG2",
                                      "IgG3", "IgG4", "IgA1", "IgA2"))
 # enforce largest 100 as in certain cases many clones have sizes right at the bound
 clones_large <- split(clones_large, f = list(clones_large$SampleType2, clones_large$variable))
@@ -193,7 +198,11 @@ plotPatchWork <- function(clone_tb, rep_tb = test_data, VgeneHighlight = NULL){
                             axis.ticks = element_blank()) +
     guides(fill = guide_legend(override.aes = list(size=4)))
 }
-
+clones_large$SampleType2 <- factor(clones_large$SampleType2,
+                                   levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola",
+                                              "RSV-I", "RSV-U", "YFVD28"),
+                                   labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV", "RSV-I",
+                                              "RSV-U", "YFVD28"))
 plotPatchWork(clones_large) + facet_grid(variable ~ SampleType2) + ggtitle("all - highlight V family") + 
   theme(panel.border = element_rect(fill = NA))
 plotPatchWork(clones_large, 
@@ -221,6 +230,7 @@ clones_sampled <- test_data[which(test_data$UseAsRef &
                             c(which(colnames(test_data) %in% c("PatientID", "CloneID",
                                                                "Vfamily", "Vgene", "Jfamily")))]
 sampled_data <- split(test_data, f = list(test_data$SampleType2, test_data$PatientID), drop = TRUE)
+set.seed(66)
 sampled_data <- lapply(sampled_data, function(tb){
   if(nrow(tb) < 12000){ # 12,000 is the median sequencing depth across samples
     tb[sample(1:nrow(tb), size = 12000, replace = TRUE), ]
@@ -241,9 +251,8 @@ clone_count_sampled <- ddply(sampled_data, c("SampleType2", "PatientID", "CloneI
                      IgG4 = sum(Subclass == "IgG4", na.rm = TRUE),
                      IgA1 = sum(Subclass == "IgA1", na.rm = TRUE),
                      IgA2 = sum(Subclass == "IgA2", na.rm = TRUE))
-# just take time point 0
 
-clones_sampled <- merge(clones_sampled, clone_count, by = c("PatientID", "CloneID"),
+clones_sampled <- merge(clones_sampled, clone_count_sampled, by = c("PatientID", "CloneID"),
                         all.x = FALSE, all.y = FALSE, sort = FALSE)
 clones_sampled <- clones_sampled[which(clones_sampled$SampleType2 != "Infected"), ]
 
@@ -298,12 +307,14 @@ clones_sampled$y <- runif(nrow(clones_sampled))
 clones_sampled$variable <- factor(clones_sampled$variable,
                                   levels = c("NumInClone", "IgM_naive", "IgM_memory", "IgG1", "IgG2",
                                              "IgG3", "IgG4", "IgA1", "IgA2"),
-                                  labels = c("all", "Naive", "IgM memory", "IgG1", "IgG2",
+                                  labels = c("all", "IgM unmutated", "IgM mutated", "IgG1", "IgG2",
                                              "IgG3", "IgG4", "IgA1", "IgA2"))
 
 clones_sampled$SampleType2 <- factor(clones_sampled$SampleType2,
-                                     levels = c("COVID-19", "COVID-19Recovered", "Ebola", "Healthy", 
-                                                "RSV-I", "RSV-U", "YFVD28"))
+                                   levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola",
+                                              "RSV-I", "RSV-U", "YFVD28"),
+                                   labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV", "RSV-I",
+                                              "RSV-U", "YFVD28"))
 plotPatchWork(clones_sampled) + facet_grid(variable ~ SampleType2) + ggtitle("sampled - highlight V family") + 
   theme(panel.border = element_rect(fill = NA))
 plotPatchWork(clones_sampled, 
@@ -320,8 +331,10 @@ Gini coefficient : 1 = completely uneven, 0 = completely even. Here plotted (1 -
 gini <- ddply(clones, c("SampleType2", "variable", "PatientID"), summarise, 
               gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
 gini$SampleType2 <- factor(gini$SampleType2,
-                           levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U",
-                                      "YFVD28"))
+                           levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", 
+                                      "RSV-I", "RSV-U", "YFVD28"),
+                           labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV", 
+                                      "RSV-I", "RSV-U", "YFVD28"))
 #saveRDS(gini, "gini.rds")
 
 
@@ -391,7 +404,7 @@ gini <- doGiniTest(gini_tb = gini)
 gini$variable <- factor(gini$variable,
                         levels = c("NumInClone", "IgM_memory", "IgM_naive", "IgG1", "IgG2",
                                    "IgG3", "IgG4", "IgA1", "IgA2"),
-                        labels = c("all", "IgM memory", "Naive", "IgG1", "IgG2",
+                        labels = c("all", "IgM mutated", "IgM unmutated", "IgG1", "IgG2",
                                    "IgG3", "IgG4", "IgA1", "IgA2"))
 
 # reference lines showing median gini for healthy samples just for easy comparisons
@@ -404,17 +417,67 @@ ggplot(gini, aes(x = SampleType2, y = gini_index, colour = sig)) + geom_boxplot(
   facet_wrap(~ variable) + cowplot::theme_cowplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
+# specific to age group
+
+Split by age group ($\leq 50\ \text{or}\ \geq 60$) & look for differences in polyclonality / monoclonality?
+
+```{r fig.width=13, fig.height=13}
+clones$AgeGroup <- clones$Age
+clones$AgeGroup <- replace(clones$AgeGroup, which(clones$AgeGroup == "nd"), NA)
+clones$AgeGroup <- replace(clones$AgeGroup, which(clones$AgeGroup == "Young"), "leq50")
+clones$AgeGroup <- replace(clones$AgeGroup, which(clones$AgeGroup == "Old"), "geq60")
+clones$AgeGroup <- sapply(clones$AgeGroup, function(x){
+  if( is.na(x) ) return(NA)
+  else if( x %in% c("leq50", "geq60") ) return(x)
+  else {
+    if( as.numeric(x) <= 50) return("leq50")
+    else if( as.numeric(x) >= 60) return("geq60")
+    else return(NA)
+  }
+})
+
+# split by Vgene
+gini_age <- ddply(clones[which(!is.na(clones$AgeGroup)), ], 
+                  c("AgeGroup", "SampleType2", "variable", "PatientID"), summarise, 
+                  gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
+gini_age$SampleType2 <- factor(gini_age$SampleType2,
+                               levels = c("Healthy", "COVID-19", "COVID-19Recovered", 
+                                          "Ebola", "RSV-I", "RSV-U", "YFVD28"),
+                               labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV",
+                                          "RSV-I", "RSV-U", "YFVD28"))
+gini_age <- doGiniTest(gini_age, split_variable_col = "AgeGroup")
+
+saveRDS(gini_age, "gini_diversity_splitByAge_ANOVA.rds")
+```
+
+```{r fig.width=13, fig.height=6}
+gini_age <- readRDS('gini_diversity_splitByAge_ANOVA.rds')
+gini_age$variable <- factor(gini_age$variable,
+                        levels = c("NumInClone", "IgM_memory", "IgM_naive", "IgG1", "IgG2",
+                                   "IgG3", "IgG4", "IgA1", "IgA2"),
+                        labels = c("all", "IgM mutated", "IgM unmutated", "IgG1", "IgG2",
+                                   "IgG3", "IgG4", "IgA1", "IgA2"))
+ggplot(gini_age, aes(x = SampleType2, y = gini_index, colour = sig)) + geom_boxplot() + geom_point() + 
+  xlab("") + ylab("1 - Gini coefficient") + 
+  # geom_hline(data = healthy_lvl, aes(yintercept = median_gini), linetype = "dashed", colour = "grey") +
+  scale_colour_manual(name = "p < 0.05", values = c("TRUE" = "red", "FALSE" = "grey")) +
+  facet_grid(AgeGroup ~ variable) + cowplot::theme_cowplot() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
 # specific to each gene
 
 Split by V/D/J and combinations - which gene usage is more associated with polyclonality / monoclonality?
 
-```{r  eval=FALSE, fig.width=13, fig.height=13}
+```{r eval=FALSE, fig.width=13, fig.height=13}
 # split by Vgene
 gini_v <- ddply(clones, c("Vgene", "SampleType2", "variable", "PatientID"), summarise, 
                 gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
 gini_v$SampleType2 <- factor(gini_v$SampleType2,
                              levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U",
-                                        "YFVD28"))
+                                        "YFVD28"),
+                        labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV", "RSV-I", "RSV-U", "YFVD28"))
 gini_v <- doGiniTest(gini_v, split_variable_col = "Vgene")
 
 # split by Dgene
@@ -423,7 +486,8 @@ gini_d <- ddply(clones, c("Dgene", "SampleType2", "variable", "PatientID"), summ
 gini_d <- gini_d[which(!is.na(gini_d$Dgene)), ]
 gini_d$SampleType2 <- factor(gini_d$SampleType2,
                              levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U",
-                                        "YFVD28"))
+                                        "YFVD28"),
+                        labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV", "RSV-I", "RSV-U", "YFVD28"))
 gini_d <- doGiniTest(gini_d, split_variable_col = "Dgene")
 
 # split by Jfamily
@@ -431,7 +495,8 @@ gini_j <- ddply(clones, c("Jfamily", "SampleType2", "variable", "PatientID"), su
                 gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
 gini_j$SampleType2 <- factor(gini_j$SampleType2,
                              levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U",
-                                        "YFVD28"))
+                                        "YFVD28"),
+                        labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV", "RSV-I", "RSV-U", "YFVD28"))
 gini_j <- doGiniTest(gini_j, split_variable_col = "Jfamily")
 
 # split by V-J
@@ -439,7 +504,8 @@ gini_vj <- ddply(clones, c("Vgene", "Jfamily", "SampleType2", "variable", "Patie
                 gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
 gini_vj$SampleType2 <- factor(gini_vj$SampleType2,
                              levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U",
-                                        "YFVD28"))
+                                        "YFVD28"),
+                        labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV", "RSV-I", "RSV-U", "YFVD28"))
 gini_vj$VJ <- gsub("IGH", "", paste(gini_vj$Vgene, gini_vj$Jfamily, sep = "."))
 gini_vj <- doGiniTest(gini_vj, split_variable_col = "VJ")
 
@@ -448,7 +514,8 @@ gini_vd <- ddply(clones, c("Vgene", "Dgene", "SampleType2", "variable", "Patient
                 gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
 gini_vd$SampleType2 <- factor(gini_vd$SampleType2,
                              levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U",
-                                        "YFVD28"))
+                                        "YFVD28"),
+                        labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV", "RSV-I", "RSV-U", "YFVD28"))
 gini_vd$VD <- gsub("IGH", "", paste(gini_vd$Vgene, gini_vd$Dgene, sep = "."))
 gini_vd <- doGiniTest(gini_vd, split_variable_col = "VD")
 
@@ -457,7 +524,8 @@ gini_dj <- ddply(clones, c("Dgene", "Jfamily", "SampleType2", "variable", "Patie
                 gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
 gini_dj$SampleType2 <- factor(gini_dj$SampleType2,
                              levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U",
-                                        "YFVD28"))
+                                        "YFVD28"),
+                        labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV", "RSV-I", "RSV-U", "YFVD28"))
 gini_dj$DJ <- gsub("IGH", "", paste(gini_dj$Dgene, gini_dj$Jfamily, sep = "."))
 gini_dj <- doGiniTest(gini_dj, split_variable_col = "DJ")
 
@@ -466,7 +534,8 @@ gini_vdj <- ddply(clones, c("Vgene", "Dgene", "Jfamily", "SampleType2", "variabl
                 gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
 gini_vdj$SampleType2 <- factor(gini_vdj$SampleType2,
                                levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U",
-                                          "YFVD28"))
+                                          "YFVD28"),
+                        labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV", "RSV-I", "RSV-U", "YFVD28"))
 gini_vdj$VDJ <- gsub("IGH", "", paste(gini_vdj$Vgene, gini_vdj$Dgene, gini_vdj$Jfamily, sep = "."))
 gini_vdj <- doGiniTest(gini_vdj, split_variable_col = "VDJ")
 
@@ -513,7 +582,7 @@ gene_usage_test <- read.csv(gene_usage_test, stringsAsFactors = FALSE)
 gene_usage_test$SampleType <- factor(gene_usage_test$SampleType,
                                      levels = c("COVID-19", "COVID-19 Recovered", "Ebola", 
                                                 "RSV-I", "RSV-U", "YFVD28"),
-                                     labels = c("COVID-19", "COVID-19Recovered", "Ebola", 
+                                     labels = c("CV19", "CV19-Recovered", "EBOV", 
                                                 "RSV-I", "RSV-U", "YFVD28"))
 gene_usage_test$include <- TRUE
 gini_split <- merge(gini_split, gene_usage_test[, c(-1, -2)], by.x = c("SampleType2", "split_variable"),
@@ -523,7 +592,7 @@ gini_split <- gini_split[which(!is.na(gini_split$include)), ]
 gini_split$variable <- factor(gini_split$variable,
                           levels = c("NumInClone", "IgM_naive", "IgM_memory", "IgG1", "IgG2",
                                      "IgG3", "IgG4", "IgA1", "IgA2"),
-                          labels = c("all", "Naive", "IgM memory", "IgG1", "IgG2",
+                          labels = c("all", "IgM unmutated", "IgM mutated", "IgG1", "IgG2",
                                      "IgG3", "IgG4", "IgA1", "IgA2"))
 gini_split$mean_gini <- replace(gini_split$mean_gini,
                                 which(gini_split$mean_gini < -0.4), -0.4)
@@ -571,7 +640,7 @@ ggplot(gini_split[which(gini_split$category == "J" & gini_split$SampleType2 != "
     cowplot::theme_cowplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom")
 ```
 
-# separated by age
+# separated by age & genes
 
 Difference between age $\leq50$ vs $\geq60$ ?
 
@@ -597,7 +666,7 @@ gini_age <- lapply(clones, function(tb){
   gini_v_age <- ddply(tb, c("Vgene", "SampleType2", "variable", "PatientID"), summarise, 
                   gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
   gini_v_age$SampleType2 <- factor(gini_v_age$SampleType2,
-                               levels = c("Healthy", "COVID-19"))
+                               levels = c("Healthy", "COVID-19"), labels = c("Healthy", "CV19"))
   gini_v_age <- doGiniTest(gini_v_age, split_variable_col = "Vgene")
 
   # split by Dgene
@@ -605,21 +674,21 @@ gini_age <- lapply(clones, function(tb){
                   gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
   gini_d_age <- gini_d_age[which(!is.na(gini_d_age$Dgene)), ]
   gini_d_age$SampleType2 <- factor(gini_d_age$SampleType2,
-                               levels = c("Healthy", "COVID-19"))
+                               levels = c("Healthy", "COVID-19"), labels = c("Healthy", "CV19"))
   gini_d_age <- doGiniTest(gini_d_age, split_variable_col = "Dgene")
 
   # split by Jfamily
   gini_j_age <- ddply(tb, c("Jfamily", "SampleType2", "variable", "PatientID"), summarise, 
                   gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
   gini_j_age$SampleType2 <- factor(gini_j_age$SampleType2,
-                               levels = c("Healthy", "COVID-19"))
+                               levels = c("Healthy", "COVID-19"), labels = c("Healthy", "CV19"))
   gini_j_age <- doGiniTest(gini_j_age, split_variable_col = "Jfamily")
 
   # split by V-J
   gini_vj_age <- ddply(tb, c("Vgene", "Jfamily", "SampleType2", "variable", "PatientID"), summarise, 
                   gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
   gini_vj_age$SampleType2 <- factor(gini_vj_age$SampleType2,
-                                levels = c("Healthy", "COVID-19"))
+                                levels = c("Healthy", "COVID-19"), labels = c("Healthy", "CV19"))
   gini_vj_age$VJ <- gsub("IGH", "", paste(gini_vj_age$Vgene, gini_vj_age$Jfamily, sep = "."))
   gini_vj_age <- doGiniTest(gini_vj_age, split_variable_col = "VJ")
 
@@ -627,7 +696,7 @@ gini_age <- lapply(clones, function(tb){
   gini_vd_age <- ddply(tb, c("Vgene", "Dgene", "SampleType2", "variable", "PatientID"), summarise, 
                 gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
   gini_vd_age$SampleType2 <- factor(gini_vd_age$SampleType2,
-                                levels = c("Healthy", "COVID-19"))
+                                levels = c("Healthy", "COVID-19"), labels = c("Healthy", "CV19"))
   gini_vd_age$VD <- gsub("IGH", "", paste(gini_vd_age$Vgene, gini_vd_age$Dgene, sep = "."))
   gini_vd_age <- doGiniTest(gini_vd_age, split_variable_col = "VD")
 
@@ -635,7 +704,7 @@ gini_age <- lapply(clones, function(tb){
   gini_dj_age <- ddply(tb, c("Dgene", "Jfamily", "SampleType2", "variable", "PatientID"), summarise, 
                   gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
   gini_dj_age$SampleType2 <- factor(gini_dj_age$SampleType2,
-                               levels = c("Healthy", "COVID-19"))
+                               levels = c("Healthy", "COVID-19"), labels = c("Healthy", "CV19"))
   gini_dj_age$DJ <- gsub("IGH", "", paste(gini_dj_age$Dgene, gini_dj_age$Jfamily, sep = "."))
   gini_dj_age <- doGiniTest(gini_dj_age, split_variable_col = "DJ")
 
@@ -643,7 +712,7 @@ gini_age <- lapply(clones, function(tb){
   gini_vdj_age <- ddply(tb, c("Vgene", "Dgene", "Jfamily", "SampleType2", "variable", "PatientID"), summarise, 
                   gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
   gini_vdj_age$SampleType2 <- factor(gini_vdj_age$SampleType2,
-                                 levels = c("Healthy", "COVID-19"))
+                                 levels = c("Healthy", "COVID-19"), labels = c("Healthy", "CV19"))
   gini_vdj_age$VDJ <- gsub("IGH", "", paste(gini_vdj_age$Vgene, gini_vdj_age$Dgene, gini_vdj_age$Jfamily, sep = "."))
   gini_vdj_age <- doGiniTest(gini_vdj_age, split_variable_col = "VDJ")
 
@@ -696,7 +765,7 @@ gene_usage_test <- read.csv(gene_usage_test, stringsAsFactors = FALSE)
 gene_usage_test$SampleType <- factor(gene_usage_test$SampleType,
                                      levels = c("COVID-19", "COVID-19 Recovered", "Ebola", 
                                                 "RSV-I", "RSV-U", "YFVD28"),
-                                     labels = c("COVID-19", "COVID-19Recovered", "Ebola", 
+                                     labels = c("CV19", "CV19-Recovered", "EBOV", 
                                                 "RSV-I", "RSV-U", "YFVD28"))
 gene_usage_test$include <- TRUE
 gini_age <- merge(gini_age, gene_usage_test[, c(-1, -2)], by.x = c("SampleType2", "split_variable"),
@@ -706,7 +775,7 @@ gini_age <- gini_age[which(!is.na(gini_age$include)), ]
 gini_age$variable <- factor(gini_age$variable,
                           levels = c("NumInClone", "IgM_naive", "IgM_memory", "IgG1", "IgG2",
                                      "IgG3", "IgG4", "IgA1", "IgA2"),
-                          labels = c("all", "Naive", "IgM memory", "IgG1", "IgG2",
+                          labels = c("all", "IgM unmutated", "IgM mutated", "IgG1", "IgG2",
                                      "IgG3", "IgG4", "IgA1", "IgA2"))
 gini_age$mean_gini <- replace(gini_age$mean_gini,
                                 which(gini_age$mean_gini < -0.4), -0.4)

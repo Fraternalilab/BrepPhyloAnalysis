@@ -51,7 +51,7 @@ pdb_ab <- read.table('known_binders/20210519ver_sabdab_SARSCoV2Abs_sequences_VJg
 # take only CDR3, ie removing the canonical C and W that flanks CDR3
 pdb_ab$CDRH3 <- substr(pdb_ab$CDRH3, 2, nchar(pdb_ab$CDRH3)-1) 
 pdb_ab$struct_id <- apply(pdb_ab[, 1:2], MARGIN = 1, paste, collapse = "|")
-pdb_ab$Specificity <- "PDB"
+# pdb_ab$Specificity <- "PDB"
 pdb_ab <- ddply(pdb_ab, c("CDRH3", "Specificity", "Vgene", "Jfamily"), summarise,
                   fasta_header = paste(struct_id, collapse = ","),
                   molecule_name = paste(unique(molecule_name), collapse = ","))
@@ -215,22 +215,34 @@ membership_both <- ddply(membership, "cluster", summarise,
 membership_both <- membership_both[which(membership_both$both), "cluster"]
 membership$both <- (membership$cluster %in% membership_both)
 
-membership <- merge(membership, test_data[, c("Seq_ID", "NumInClone", "CloneGroup")],
+membership <- merge(membership, test_data[, c("Seq_ID", "NumInClone", "CloneGroup", "Age")],
                     by = "Seq_ID", all.x = TRUE, all.y = FALSE, sort = FALSE)
 membership$SampleType2 <- membership$Specificity
 saveRDS(membership, 'convergent_cluster_membership.rds')
 ```
 
-```{r, fig.width=8, fig.height=7}
+```{r, fig.width=7, fig.height=8}
 # largest clusters & V/J gene use
-cluster_summary <- membership[, c("Seq_ID", "cluster", "cluster_size", "SampleType2", 
-                                  "Vgene", "Jfamily", "PatientID", "both")]
+cluster_summary <- membership[, c("cluster", "cluster_size", "SampleType2", "Age", "PatientID", "Seq_ID",
+                                  "Vgene", "Jfamily", "both")]
+cluster_summary$AgeGroup <- sapply(cluster_summary$Age, function(x){
+  if(x %in% c("Young", "Old")){
+    if(x == "Young") return("leq50")
+    if(x == "Old") return("geq60")
+  } else if(is.na(x)) return(NA) else {
+    x <- as.numeric(x)
+    if(x <= 50) return("leq50")
+    if(x >= 60) return("geq60")
+    return(NA)
+  }
+  return(NA)
+})
 cluster_summary <- cluster_summary[order(cluster_summary$cluster_size, decreasing = TRUE), ]
 cluster_large <- cluster_summary[which(cluster_summary$cluster_size >= 10), ]
 cluster_large$SampleType2 <- replace(cluster_large$SampleType2, which(cluster_large$SampleType2 == "PDB"),
                                      "Spike/RBD")
-cluster_large <- ddply(cluster_large, c("cluster", "cluster_size", "Vgene", "Jfamily", "SampleType2"), 
-                       summarise, V1 = length(Seq_ID), n_patients = length(unique(PatientID)))
+cluster_large <- ddply(cluster_large, c("cluster", "cluster_size", "Vgene", "Jfamily", "AgeGroup", "SampleType2"),
+                       summarise, V1 = length(Seq_ID), n_patient = length(unique(PatientID)))
 cluster_large$cluster <- factor(cluster_large$cluster, 
                                 levels = unique(cluster_large$cluster[order(cluster_large$cluster_size, 
                                                                             decreasing = TRUE)]))
@@ -239,7 +251,8 @@ cluster_large$cluster <- factor(cluster_large$cluster,
 g1 <- ggplot(cluster_large, aes(x = cluster, y = V1, fill = SampleType2)) + geom_bar(stat = "identity") +
   cowplot::theme_cowplot() + theme(axis.text.x = element_blank()) + 
   scale_fill_manual(values = c("Healthy" = "#7FC97F", "COVID-19" = "#BEAED4", "Spike" = "#99CCFF", 
-                               "COVID-19Recovered" = "#FDC086", "Spike/RBD" = "#0000FF"), name = "") +
+                               "COVID-19Recovered" = "#FDC086", "Spike/RBD" = "#0000FF"), name = "",
+                    labels = c("CV19", "CV19-Recovered", "Healthy", "Spike", "Spike/RBD")) +
   xlab("Convergent clusters") +ylab("Number of\nsequences") + ggtitle("Clusters with 10 or more sequences (n = 43)")
 # Vgene usage
 g2 <- ggplot(cluster_large, aes(x = cluster, y = Vgene)) + geom_tile(fill = "black") +
@@ -248,14 +261,15 @@ g2 <- ggplot(cluster_large, aes(x = cluster, y = Vgene)) + geom_tile(fill = "bla
 # Jfamily usage
 g3 <- ggplot(cluster_large, aes(x = cluster, y = Jfamily)) + geom_tile(fill = "black") +
   cowplot::theme_cowplot() + theme(axis.text.x = element_blank(),
-                                   axis.ticks.x = element_blank()) + xlab("Convergent clusters") +ylab("J usage")
-# Number of patients with sequences in a cluster
-g4 <- ggplot(cluster_large[which( !grepl("Spike", cluster_large$SampleType2)), ], 
-             aes(x = cluster, y = n_patients)) + 
-  geom_bar(stat = "identity") + xlab("Convergent clusters") + 
-  scale_y_continuous(name="No. of\npatients") +
-  cowplot::theme_cowplot() + theme(axis.text.x = element_blank(),
-                                   axis.ticks.x = element_blank()) 
+                                   axis.ticks.x = element_blank()) + xlab("") +ylab("J usage")
+
+# number of donors represented (ie with sequences present) in each cluster
+g4 <- ggplot(cluster_large[which(!is.na(cluster_large$AgeGroup)), ], 
+             aes(x = cluster, y = n_patient, fill = AgeGroup)) + geom_bar(stat = "identity") +
+  cowplot::theme_cowplot() + theme(axis.text.x = element_blank()) +
+  scale_fill_manual(values = c("leq50" = "grey30", "geq60" = "grey70"),
+                    label = c(expression("Age ">=60), expression("Age "<=50)), name = "") +
+  xlab("Convergent clusters") +ylab("Number of\ndonors")
 
 cowplot::plot_grid(g1, g2, g3, g4, ncol = 1, axis = "lr", align = "v", rel_heights = c(2, 3, 1, 1))
 ```
@@ -276,13 +290,13 @@ both_targets <- both_targets[order(both_targets$cluster_size, decreasing = TRUE)
 both_targets$cluster <- factor(both_targets$cluster, levels = unique(both_targets$cluster))
 
 # n sequences per cluster
-# n sequences per cluster
 g4 <- ggplot(unique(both_targets[, c("cluster", "Specificity", "V1")]), 
              aes(x = cluster, y = V1, fill = Specificity)) + geom_bar(stat = "identity") +
   cowplot::theme_cowplot() + theme(axis.text.x = element_blank()) + 
-  scale_fill_manual(values = c(c("Healthy" = "#7FC97F", "COVID-19" = "#BEAED4",
-                                 "COVID-19Recovered" = "#FDC086", "Spike/NTD" = "#bd40ac",
-                                 "Spike" = "#99CCFF", "Spike/RBD" = "#0000FF")),name = "") +
+  scale_fill_manual(values = c("Healthy" = "#7FC97F", "COVID-19" = "#BEAED4",
+                               "COVID-19Recovered" = "#FDC086", "Spike/NTD" = "#bd40ac",
+                               "Spike" = "#99CCFF", "Spike/RBD" = "#0000FF"),name = "",
+                    labels = c("CV19", "CV19-Recovered", "Healthy", "Spike", "Spike/NTD", "Spike/RBD")) +
   xlab("") +ylab("Number of\nsequences") + ggtitle("Clusters with binders (n = 28)")
 # targets
 g5 <- ggplot(both_targets[which(grepl("Spike", both_targets$Specificity)), ], 
@@ -297,7 +311,6 @@ cowplot::plot_grid(g4, g5, ncol = 1, axis = "lr", align = "v", rel_heights = c(2
 ## Example of convergent clusters
 
 ```{r }
-# cluster 674, 589, 1877
 library(visNetwork)
 visualiseNetwork <- function(graph, nodes, node_annotation, cluster, node_id_col = "Seq_ID", 
                              node_color_col = "Specificity", 

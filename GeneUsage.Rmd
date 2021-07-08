@@ -56,7 +56,7 @@ isotype_test$SampleType <- replace(isotype_test$SampleType, which(isotype_test$S
                                    "COVID-19Recovered")
 vdj_test$subset <- factor(vdj_test$subset,
                           levels = c("Bulk", "IgMmem", "IgA1", "IgG1"),
-                          labels = c("all sequences", "IgM memory", "IgA1", "IgG1"))
+                          labels = c("all sequences", "IgM mutated", "IgA1", "IgG1"))
 ```
 
 ```{r}
@@ -101,6 +101,8 @@ isotype_usage <- merge(isotype_usage, isotype_test, by.x = c("SampleType2", "Sub
 isotype_usage[which(is.na(isotype_usage$pval)), "pval"] <- 0
 isotype_usage$SampleType2 <- factor(isotype_usage$SampleType2,
                                     levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola",
+                                               "RSV-I", "RSV-U", "YFVD28"),
+                                    labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV",
                                                "RSV-I", "RSV-U", "YFVD28"))
 saveRDS(isotype_usage, 'gene_usage_C.rds')
 
@@ -133,7 +135,7 @@ test_data$Vgene <- factor(test_data$Vgene)
 v_usage <- list(
   "all" = ddply(test_data, c("Vgene", "SampleType2", "PatientID"), nrow, .drop = FALSE),
   "isotype" = ddply(test_data, c("Subclass", "Vgene", "SampleType2", "PatientID"), nrow, .drop = FALSE),
-  "IgM Memory" = ddply(test_data[which(test_data$Class == "M" &
+  "IgM mutated" = ddply(test_data[which(test_data$Class == "M" &
                                          test_data$MutationalStatus == "Mutated"), ],
                        c("Vgene", "SampleType2", "PatientID"), nrow, .drop = FALSE)
 )
@@ -142,7 +144,7 @@ v_usage <- getPercentagesFromCountTbList( v_usage, category_name = "Vgene" )
 # label the observations
 v_usage[["all"]]$Subclass <- "all sequences"
 #v_usage[["isotype"]]$Subclass <- paste("Ig", v_usage$isotype$Class, sep = "")
-v_usage[["IgM Memory"]]$Subclass <- "IgM memory"
+v_usage[["IgM mutated"]]$Subclass <- "IgM mutated"
 
 # combine the tables
 v_usage <- do.call("rbind", lapply(v_usage, function(tb){
@@ -155,18 +157,13 @@ v_usage0.5 <- merge(v_usage0.5, v_usage0.5[which(v_usage0.5$SampleType2 == "Heal
                     by = c("Vgene", "Subclass"))
 v_usage0.5$mean_perc <- v_usage0.5$mean_perc.x - v_usage0.5$mean_perc.y
 # Select only the labels you want
-v_usage1 <- v_usage0.5[v_usage0.5$Subclass %in% c("all sequences", "IgA1", "IgG1", "IgM memory"), ]
+v_usage1 <- v_usage0.5[v_usage0.5$Subclass %in% c("all sequences", "IgA1", "IgG1", "IgM mutated"), ]
 
 # this below controls the order these plots are shown
 v_usage1$Subclass <- factor(v_usage1$Subclass, 
-                            levels = c("all sequences", "IgM memory", "IgA1", "IgG1"))
+                            levels = c("all sequences", "IgM mutated", "IgA1", "IgG1"))
 #Select disease states
 v_usage1 <- v_usage1[v_usage1$SampleType2 %in% c("COVID-19", "COVID-19Recovered", "Ebola", "Healthy", "RSV-I", "RSV-U", "YFVD28"), ]
-
-# this below controls the order of x-axis
-v_usage1$SampleType2 <- factor(v_usage1$SampleType2, 
-                               levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U", "YFVD28"))
-
 
 # you can filter certain v genes you want if necessary, e.g.:
 v_usage1 <- v_usage1[ !grepl("^IGK|^IGL", v_usage1$Vgene), ]
@@ -193,9 +190,15 @@ v_usage1.1$logp <- -log(v_usage1.1$pval)
 v_usage1.1$logp[which(is.infinite(v_usage1.1$logp))] <- 10
 v_usage1.1$pval[which(is.na(v_usage1.1$pval))] <- 0
 v_usage1.1$logp[which(v_usage1.1$SampleType2 == "Healthy")] <- -log(0.5)
+# this below controls the order of x-axis
+v_usage1.1$SampleType2 <- factor(v_usage1.1$SampleType2, 
+                               levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U", "YFVD28"),
+                               labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV",
+                                          "RSV-I", "RSV-U", "YFVD28"))
+
 saveRDS(v_usage1.1, 'gene_usage_V.rds')
 # plot
-g <- do.call("c", lapply(c("all sequences", "IgM memory", "IgA1", "IgG1"), function(x){
+g <- do.call("c", lapply(c("all sequences", "IgM mutated", "IgA1", "IgG1"), function(x){
   if(x == "IgA1") legendpos = "bottom" else legendpos = "none"
   list(
     ggplot(v_usage1.1[v_usage1.1$Subclass == x & v_usage1.1$SampleType2 == "Healthy", ], 
@@ -240,7 +243,7 @@ plot(as.dendrogram(clustering))
 v_selected <- v_usage1.1[v_usage1.1$Vgene %in% c("IGHV1-69", "IGHV3-7", "IGHV3-23", "IGHV3-30",
                                                  "IGHV4-34", "IGHV4-39"), ]
 v_selected$Vgene <- as.character(v_selected$Vgene)
-g <- do.call("c", lapply(c("all sequences", "IgM memory", "IgA1", "IgG1"), function(x){
+g <- do.call("c", lapply(c("all sequences", "IgM mutated", "IgA1", "IgG1"), function(x){
   if(x == "IgA1") legendpos = "bottom" else legendpos = "none"
   tb <- v_selected[v_selected$Subclass == x & v_selected$SampleType2 != "Healthy", ]
   tb[which(tb$mean_perc < -0.02), "mean_perc"] <- -0.02
@@ -280,7 +283,7 @@ test_data$Dgene <- factor(test_data$Dgene)
 d_usage <- list(
   "all" = ddply(test_data, c("Dgene", "SampleType2", "PatientID"), nrow, .drop = FALSE),
   "isotype" = ddply(test_data, c("Subclass", "Dgene", "SampleType2", "PatientID"), nrow, .drop = FALSE),
-  "IgM Memory" = ddply(test_data[which(test_data$Class == "M" &
+  "IgM mutated" = ddply(test_data[which(test_data$Class == "M" &
                                          test_data$MutationalStatus == "Mutated"), ],
                        c("Dgene", "SampleType2", "PatientID"), nrow, .drop = FALSE)
 )
@@ -289,7 +292,7 @@ d_usage <- getPercentagesFromCountTbList( d_usage, category_name = "Dgene" )
 # label the observations
 d_usage[["all"]]$Subclass <- "all sequences"
 #d_usage[["isotype"]]$Subclass <- paste("Ig", d_usage$isotype$Class, sep = "")
-d_usage[["IgM Memory"]]$Subclass <- "IgM memory"
+d_usage[["IgM mutated"]]$Subclass <- "IgM mutated"
 
 # combine the tables
 d_usage <- do.call("rbind", lapply(d_usage, function(tb){
@@ -303,18 +306,13 @@ d_usage0.5 <- merge(d_usage0.5, d_usage0.5[which(d_usage0.5$SampleType2 == "Heal
 d_usage0.5$mean_perc <- d_usage0.5$mean_perc.x - d_usage0.5$mean_perc.y
 
 # Select only the labels you want
-d_usage1 <- d_usage0.5[d_usage0.5$Subclass %in% c("all sequences", "IgA1", "IgG1", "IgM memory"), ]
+d_usage1 <- d_usage0.5[d_usage0.5$Subclass %in% c("all sequences", "IgA1", "IgG1", "IgM mutated"), ]
 
 # this below controls the order these plots are shown
 d_usage1$Subclass <- factor(d_usage1$Subclass, 
-                            levels = c("all sequences", "IgM memory", "IgA1", "IgG1"))
+                            levels = c("all sequences", "IgM mutated", "IgA1", "IgG1"))
 #Select disease states
 d_usage1 <- d_usage1[d_usage1$SampleType2 %in% c("COVID-19", "COVID-19Recovered", "Ebola", "Healthy", "RSV-I", "RSV-U", "YFVD28"), ]
-
-# this below controls the order of x-axis
-d_usage1$SampleType2 <- factor(d_usage1$SampleType2, 
-                               levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U", "YFVD28"))
-
 
 # you can filter certain v genes you want if necessary, e.g.:
 d_usage1 <- d_usage1[ !grepl("^IGK|^IGL", d_usage1$Dgene), ]
@@ -341,10 +339,16 @@ d_usage1.1$logp <- -log(d_usage1.1$pval)
 d_usage1.1$logp[which(is.infinite(d_usage1.1$logp))] <- 10
 d_usage1.1$pval[which(is.na(d_usage1.1$pval))] <- 0
 d_usage1.1$logp[which(d_usage1.1$SampleType2 == "Healthy")] <- -log(0.5)
+# this below controls the order of x-axis
+d_usage1.1$SampleType2 <- factor(d_usage1.1$SampleType2, 
+                               levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U", "YFVD28"),
+                               labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV",
+                                          "RSV-I", "RSV-U", "YFVD28"))
+
 saveRDS(d_usage1.1, 'gene_usage_D.rds')
 
 # plot
-g <- do.call("c", lapply(c("all sequences", "IgM memory", "IgA1", "IgG1"), function(x){
+g <- do.call("c", lapply(c("all sequences", "IgM mutated", "IgA1", "IgG1"), function(x){
   if(x == "IgA1") legendpos = "bottom" else legendpos = "none"
   list(
     ggplot(d_usage1.1[d_usage1.1$Subclass == x & d_usage1.1$SampleType2 == "Healthy", ], 
@@ -390,7 +394,7 @@ plot(as.dendrogram(clustering))
 d_selected <- d_usage1.1[d_usage1.1$Dgene %in% c("IGHD2-2", "IGHD3-3"), ]
 d_selected$Dgene <- as.character(d_selected$Dgene)
 
-g <- do.call("c", lapply(c("all sequences", "IgM memory", "IgA1", "IgG1"), function(x){
+g <- do.call("c", lapply(c("all sequences", "IgM mutated", "IgA1", "IgG1"), function(x){
   if(x == "IgA1") legendpos = "bottom" else legendpos = "none"
   tb <- d_selected[d_selected$Subclass == x & d_selected$SampleType2 != "Healthy", ]
   tb[which(tb$mean_perc < -0.02), "mean_perc"] <- -0.02
@@ -430,7 +434,7 @@ test_data$Jfamily <- factor(test_data$Jfamily)
 j_usage <- list(
   "all" = ddply(test_data, c("Jfamily", "SampleType2", "PatientID"), nrow, .drop = FALSE),
   "isotype" = ddply(test_data, c("Subclass", "Jfamily", "SampleType2", "PatientID"), nrow, .drop = FALSE),
-  "IgM Memory" = ddply(test_data[which(test_data$Class == "M" &
+  "IgM mutated" = ddply(test_data[which(test_data$Class == "M" &
                                          test_data$MutationalStatus == "Mutated"), ],
                        c("Jfamily", "SampleType2", "PatientID"), nrow, .drop = FALSE)
 )
@@ -439,7 +443,7 @@ j_usage <- getPercentagesFromCountTbList( j_usage, category_name = "Jfamily" )
 # label the observations
 j_usage[["all"]]$Subclass <- "all sequences"
 #j_usage[["isotype"]]$Subclass <- paste("Ig", j_usage$isotype$Class, sep = "")
-j_usage[["IgM Memory"]]$Subclass <- "IgM memory"
+j_usage[["IgM mutated"]]$Subclass <- "IgM mutated"
 
 # combine the tables
 j_usage <- do.call("rbind", lapply(j_usage, function(tb){
@@ -453,18 +457,13 @@ j_usage0.5 <- merge(j_usage0.5, j_usage0.5[which(j_usage0.5$SampleType2 == "Heal
 j_usage0.5$mean_perc <- j_usage0.5$mean_perc.x - j_usage0.5$mean_perc.y
 
 # Select only the labels you want
-j_usage1 <- j_usage0.5[j_usage0.5$Subclass %in% c("all sequences", "IgA1", "IgG1", "IgM memory"), ]
+j_usage1 <- j_usage0.5[j_usage0.5$Subclass %in% c("all sequences", "IgA1", "IgG1", "IgM mutated"), ]
 
 # this below controls the order these plots are shown
 j_usage1$Subclass <- factor(j_usage1$Subclass, 
-                            levels = c("all sequences", "IgM memory", "IgA1", "IgG1"))
+                            levels = c("all sequences", "IgM mutated", "IgA1", "IgG1"))
 #Select disease states
 j_usage1 <- j_usage1[j_usage1$SampleType2 %in% c("COVID-19", "COVID-19Recovered", "Ebola", "Healthy", "RSV-I", "RSV-U", "YFVD28"), ]
-
-# this below controls the order of x-axis
-j_usage1$SampleType2 <- factor(j_usage1$SampleType2, 
-                               levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U", "YFVD28"))
-
 
 # you can filter certain v genes you want if necessary, e.g.:
 j_usage1 <- j_usage1[ !grepl("^IGK|^IGL", j_usage1$Jfamily), ]
@@ -490,10 +489,16 @@ j_usage1.1$logp <- -log(j_usage1.1$pval)
 j_usage1.1$logp[which(is.infinite(j_usage1.1$logp))] <- 10
 j_usage1.1$pval[which(is.na(j_usage1.1$pval))] <- 0
 j_usage1.1$logp[which(j_usage1.1$SampleType2 == "Healthy")] <- -log(0.5)
+# this below controls the order of x-axis
+j_usage1.1$SampleType2 <- factor(j_usage1.1$SampleType2, 
+                               levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola", "RSV-I", "RSV-U", "YFVD28"),
+                               labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV",
+                                          "RSV-I", "RSV-U", "YFVD28"))
+
 saveRDS(j_usage1.1, 'gene_usage_J.rds')
 
 # plot
-g <- do.call("c", lapply(c("all sequences", "IgM memory", "IgA1", "IgG1"), function(x){
+g <- do.call("c", lapply(c("all sequences", "IgM mutated", "IgA1", "IgG1"), function(x){
   if(x == "IgA1") legendpos = "bottom" else legendpos = "none"
   list(
     ggplot(j_usage1.1[j_usage1.1$Subclass == x & j_usage1.1$SampleType2 == "Healthy", ], 
@@ -522,7 +527,7 @@ cowplot::plot_grid(
 )
 
 # J4 and J6 only
-g <- do.call("c", lapply(c("all sequences", "IgM memory", "IgA1", "IgG1"), function(x){
+g <- do.call("c", lapply(c("all sequences", "IgM mutated", "IgA1", "IgG1"), function(x){
   if(x == "IgA1") legendpos = "bottom" else legendpos = "none"
   tb <- j_usage1.1[j_usage1.1$Subclass == x & j_usage1.1$SampleType2 != "Healthy" &
                         j_usage1.1$Jfamily %in% c("IGHJ4", "IGHJ6"), ]
@@ -574,7 +579,7 @@ Two-way comparison of (1) age: young (age $\leq 50$) and old ($\geq 60$) and (2)
 age_test <- read.csv('GraphPad results for Joseph/Age_test.csv', stringsAsFactors = FALSE)
 age_test$type <- factor(age_test$type,
                           levels = c("Isotype", "Bulk", "IgMmem", "IgA1", "IgG1"),
-                          labels = c("Isotype", "all sequences", "IgM memory", "IgA1", "IgG1"))
+                          labels = c("Isotype", "all sequences", "IgM mutated", "IgA1", "IgG1"))
 age_test$pval <- replace(age_test$pval, which(age_test$pval == "<0.0001"), "0.0001")
 age_test$pval <- replace(age_test$pval, which(age_test$pval == ">0.9999"), "0.9999")
 age_test$pval <- as.numeric(age_test$pval)
@@ -659,14 +664,14 @@ g_age_igg <- ggplot(isotype_usage[which(grepl("^IgG", isotype_usage$Subclass)), 
                         ymax = mean_perc +sem, 
                         fill = interaction(SampleType2, AgeGroup2))) +
   geom_bar(stat = "identity", colour = "black", position = position_dodge(width = .9)) + 
-  scale_fill_manual(values = c("Healthy.≤50" = "#348334",
-                               "Healthy.≥60" = "#C368D8",
-                               "COVID-19.≤50" = "#72687F",
+  scale_fill_manual(values = c("Healthy.≤50" = "#338233",
+                               "Healthy.≥60" = "#BFE4BF",
+                               "COVID-19.≤50" = "#C266D7",
                                "COVID-19.≥60" = "#D8CEE5"), name ="",
                     labels = c(expression("Healthy "<=50),
-                               expression("COVID-19 "<=50),
+                               expression("CV19 "<=50),
                                expression("Healthy ">=60),
-                               expression("COVID-19 ">=60))) + xlab("") +
+                               expression("CV19 ">=60))) + xlab("") +
   scale_y_continuous(labels = scales::percent, name = "Proportion of IgG repertoire", limits = c(0, 0.9)) +
   geom_errorbar(position = position_dodge(0.9), width = 0.2) +
   cowplot::theme_cowplot() + theme(legend.position = "none")
@@ -677,14 +682,14 @@ g_age_iga <- ggplot(isotype_usage[which(grepl("^IgA", isotype_usage$Subclass)), 
                         ymax = mean_perc +sem, 
                         fill = interaction(SampleType2, AgeGroup2))) +
   geom_bar(stat = "identity", colour = "black", position = position_dodge(width = .9)) + 
-  scale_fill_manual(values = c("Healthy.≤50" = "#348334",
-                               "Healthy.≥60" = "#C368D8",
-                               "COVID-19.≤50" = "#72687F",
+  scale_fill_manual(values = c("Healthy.≤50" = "#338233",
+                               "Healthy.≥60" = "#BFE4BF",
+                               "COVID-19.≤50" = "#C266D7",
                                "COVID-19.≥60" = "#D8CEE5"), name ="",
                     labels = c(expression("Healthy "<=50),
-                               expression("COVID-19 "<=50),
+                               expression("CV19 "<=50),
                                expression("Healthy ">=60),
-                               expression("COVID-19 ">=60))) + xlab("") +
+                               expression("CV19 ">=60))) + xlab("") +
   scale_y_continuous(labels = scales::percent, name = "Proportion of IgA repertoire", limits = c(0, 0.9)) +
   geom_errorbar(position = position_dodge(0.9), width = 0.2) +
   cowplot::theme_cowplot()
@@ -729,7 +734,7 @@ g_isotype_disease <- ggplot(isotype_usage[[1]], aes(x = AgeGroup1, y = gene, fil
   geom_point(pch = 21) + xlab("Age") + ylab("") +
   scale_x_discrete(labels = c(expression(""<=50), expression("">=60)), name = "Age") +
   scale_fill_gradient2(low = "blue", high = "red", midpoint = 0, mid = "white",  
-                       name = "% difference\n(COVID-19 vs\nHealthy)", labels = scales::percent) + 
+                       name = "% difference\n(CV19 vs\nHealthy)", labels = scales::percent) + 
   scale_size_manual(values = c("TRUE" = 8, "FALSE" = 1), name = "p < 0.05") + 
   cowplot::theme_cowplot() + theme(legend.position = "bottom", legend.box = "vertical") +
   guides(fill = guide_colourbar(label.theme = element_text(angle = 45, hjust = 1)))
@@ -739,6 +744,7 @@ g_isotype_age<- ggplot(isotype_usage[[2]], aes(x = SampleType1, y = gene, fill =
   scale_fill_gradient2(low = "forestgreen", high = "orange", midpoint = 0, mid = "white",
                        name = "% difference\n(g60 vs l50)", labels = scales::percent) + 
   scale_size_manual(values = c("TRUE" = 8, "FALSE" = 1), name = "p < 0.05") + 
+  scale_x_discrete(labels = c("Healthy", "CV19"), name = "") +
   guides(size = FALSE, fill = guide_colourbar(label.theme = element_text(angle = 45, hjust = 1))) +
   cowplot::theme_cowplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1),
                                    legend.position = "bottom", legend.box = "vertical")
@@ -758,7 +764,7 @@ v_usage <- list(
   "isotype" = ddply(test_data[which(test_data$SampleType2 %in% c("COVID-19", "Healthy") &
                                   test_data$AgeGroup2 %in% c("geq60", "leq50")),], 
                 c("Subclass", "Vgene", "AgeGroup2", "SampleType2", "PatientID"), nrow, .drop = FALSE),
-  "IgM Memory" = ddply(test_data[which(test_data$Class == "M" &
+  "IgM mutated" = ddply(test_data[which(test_data$Class == "M" &
                                          test_data$MutationalStatus == "Mutated" &
                                          test_data$SampleType2 %in% c("COVID-19", "Healthy") &
                                          test_data$AgeGroup2 %in% c("geq60", "leq50")), ],
@@ -769,7 +775,7 @@ v_usage <- getPercentagesFromCountTbList( v_usage, category_name = "Vgene" )
 # label the observations
 v_usage[["all"]]$Subclass <- "all sequences"
 #v_usage[["isotype"]]$Subclass <- paste("Ig", v_usage$isotype$Class, sep = "")
-v_usage[["IgM Memory"]]$Subclass <- "IgM memory"
+v_usage[["IgM mutated"]]$Subclass <- "IgM mutated"
 
 # combine the tables
 v_usage <- do.call("rbind", lapply(v_usage, function(tb){
@@ -783,11 +789,11 @@ v_usage0.5 <- ddply(v_usage, c("AgeGroup2", "SampleType2", "Vgene", "Subclass"),
                     sem = sd(perc, na.rm = TRUE) / (length(unique(PatientID)))^0.5)
 
 # Select only the labels you want
-v_usage1 <- v_usage0.5[v_usage0.5$Subclass %in% c("all sequences", "IgA1", "IgG1", "IgM memory"), ]
+v_usage1 <- v_usage0.5[v_usage0.5$Subclass %in% c("all sequences", "IgA1", "IgG1", "IgM mutated"), ]
 
 # this below controls the order these plots are shown
 v_usage1$Subclass <- factor(v_usage1$Subclass, 
-                            levels = c("all sequences", "IgM memory", "IgA1", "IgG1"))
+                            levels = c("all sequences", "IgM mutated", "IgA1", "IgG1"))
 
 # Select disease states & age group
 v_usage1 <- v_usage1[v_usage1$SampleType2 %in% c("COVID-19", "Healthy"), ]
@@ -858,7 +864,7 @@ g_v_disease <- ggplot(v_usage1.1[[1]], aes(x = AgeGroup1, y = gene, fill = diff,
   geom_point(pch = 21) + xlab("Age") + ylab("") +
   scale_x_discrete(labels = c(expression(""<=50), expression("">=60)), name = "Age") +
   scale_fill_gradient2(low = "blue", high = "red", midpoint = 0, mid = "white",  
-                       name = "% difference\n(COVID-19 vs\nHealthy)", labels = scales::percent, limits = c(-0.05, 0.05)) + 
+                       name = "% difference\n(CV19 vs\nHealthy)", labels = scales::percent, limits = c(-0.05, 0.05)) + 
   guides(fill = guide_colourbar(label.theme = element_text(angle = 45, hjust = 1))) +
   scale_size_manual(values = c("TRUE" = 8, "FALSE" = 1), name = "p < 0.05") + 
   cowplot::theme_cowplot() + theme(legend.position = "bottom", legend.box = "vertical", strip.text.x = element_text(size = 10)) +
@@ -870,7 +876,7 @@ g_v_age <- ggplot(v_usage1.1[[2]], aes(x = SampleType1, y = gene, fill = diff, s
                        name = "% difference\n(g60 vs l50)", labels = scales::percent, limits = c(-0.05, 0.05)) + 
   scale_size_manual(values = c("TRUE" = 8, "FALSE" = 1), name = "p < 0.05") + 
   guides(fill = guide_colourbar(label.theme = element_text(angle = 45, hjust = 1)),
-         size = FALSE) +
+         size = FALSE) + scale_x_discrete(labels = c("Healthy", "CV19"), name = "") +
   cowplot::theme_cowplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1),
                                    legend.position = "bottom", legend.box = "vertical", strip.text.x = element_text(size = 10)) + 
   facet_wrap(~ type, nrow = 1)
@@ -889,14 +895,14 @@ ggplot(v_usage1[which(v_usage1$Vgene %in% v_usage1.1[[1]]$gene), ],
            ymax = mean_perc +sem, 
            fill = interaction(SampleType2, AgeGroup2))) +
   geom_bar(stat = "identity", colour = "black", position = position_dodge(width = .9)) + 
-  scale_fill_manual(values = c("Healthy.≤50" = "#348334",
-                               "Healthy.≥60" = "#C368D8",
-                               "COVID-19.≤50" = "#72687F",
+  scale_fill_manual(values = c("Healthy.≤50" = "#338233",
+                               "Healthy.≥60" = "#BFE4BF",
+                               "COVID-19.≤50" = "#C266D7",
                                "COVID-19.≥60" = "#D8CEE5"), name ="",
                     labels = c(expression("Healthy "<=50),
-                               expression("COVID-19 "<=50),
+                               expression("CV19 "<=50),
                                expression("Healthy ">=60),
-                               expression("COVID-19 ">=60))) + xlab("") +
+                               expression("CV19 ">=60))) + xlab("") +
   scale_y_continuous(labels = scales::percent, name = "Proportion of repertoire", limits = c(0, 0.3)) + facet_wrap(~ Subclass, scales = "free_x") +
   geom_errorbar(position = position_dodge(0.9), width = 0.2) +
   cowplot::theme_cowplot() + 
@@ -915,7 +921,7 @@ d_usage <- list(
   "isotype" = ddply(test_data[which(test_data$SampleType2 %in% c("COVID-19", "Healthy") &
                                   test_data$AgeGroup2 %in% c("geq60", "leq50")),], 
                 c("Subclass", "Dgene", "AgeGroup2", "SampleType2", "PatientID"), nrow, .drop = FALSE),
-  "IgM Memory" = ddply(test_data[which(test_data$Class == "M" &
+  "IgM mutated" = ddply(test_data[which(test_data$Class == "M" &
                                          test_data$MutationalStatus == "Mutated" &
                                          test_data$SampleType2 %in% c("COVID-19", "Healthy") &
                                          test_data$AgeGroup2 %in% c("geq60", "leq50")), ],
@@ -926,7 +932,7 @@ d_usage <- getPercentagesFromCountTbList( d_usage, category_name = "Dgene" )
 # label the observations
 d_usage[["all"]]$Subclass <- "all sequences"
 #d_usage[["isotype"]]$Subclass <- paste("Ig", d_usage$isotype$Class, sep = "")
-d_usage[["IgM Memory"]]$Subclass <- "IgM memory"
+d_usage[["IgM mutated"]]$Subclass <- "IgM mutated"
 
 # combine the tables
 d_usage <- do.call("rbind", lapply(d_usage, function(tb){
@@ -940,11 +946,11 @@ d_usage0.5 <- ddply(d_usage, c("AgeGroup2", "SampleType2", "Dgene", "Subclass"),
                     sem = sd(perc, na.rm = TRUE) / (length(unique(PatientID)))^0.5)
 
 # Select only the labels you want
-d_usage1 <- d_usage0.5[d_usage0.5$Subclass %in% c("all sequences", "IgA1", "IgG1", "IgM memory"), ]
+d_usage1 <- d_usage0.5[d_usage0.5$Subclass %in% c("all sequences", "IgA1", "IgG1", "IgM mutated"), ]
 
 # this below controls the order these plots are shown
 d_usage1$Subclass <- factor(d_usage1$Subclass, 
-                            levels = c("all sequences", "IgM memory", "IgA1", "IgG1"))
+                            levels = c("all sequences", "IgM mutated", "IgA1", "IgG1"))
 
 # Select disease states & age group
 d_usage1 <- d_usage1[d_usage1$SampleType2 %in% c("COVID-19", "Healthy"), ]
@@ -1013,7 +1019,7 @@ g_d_disease <- ggplot(d_usage1.1[[1]], aes(x = AgeGroup1, y = gene, fill = diff,
   geom_point(pch = 21) + xlab("Age") + ylab("") +
   scale_x_discrete(labels = c(expression(""<=50), expression("">=60)), name = "Age") +
   scale_fill_gradient2(low = "blue", high = "red", midpoint = 0, mid = "white",  
-                       name = "% difference\n(COVID-19 vs\nHealthy)", labels = scales::percent, limits = c(-0.05, 0.05)) + 
+                       name = "% difference\n(CV19 vs\nHealthy)", labels = scales::percent, limits = c(-0.05, 0.05)) + 
   guides(fill = guide_colourbar(label.theme = element_text(angle = 45, hjust = 1))) +
   scale_size_manual(values = c("TRUE" = 8, "FALSE" = 1), name = "p < 0.05") + 
   cowplot::theme_cowplot() + theme(legend.position = "bottom", legend.box = "vertical", strip.text.x = element_text(size = 10)) +
@@ -1025,7 +1031,7 @@ g_d_age <- ggplot(d_usage1.1[[2]], aes(x = SampleType1, y = gene, fill = diff, s
                        name = "% difference\n(g60 vs l50)", labels = scales::percent, limits = c(-0.05, 0.05)) + 
   scale_size_manual(values = c("TRUE" = 8, "FALSE" = 1), name = "p < 0.05") + 
   guides(fill = guide_colourbar(label.theme = element_text(angle = 45, hjust = 1)),
-         size = FALSE) +
+         size = FALSE) + scale_x_discrete(labels = c("Healthy", "CV19"), name = "") +
   cowplot::theme_cowplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1),
                                    legend.position = "bottom", legend.box = "vertical", strip.text.x = element_text(size = 10)) + 
   facet_wrap(~ type, nrow = 1)
@@ -1044,14 +1050,14 @@ ggplot(d_usage1[which(d_usage1$Dgene %in% d_usage1.1[[1]]$gene), ],
            ymax = mean_perc +sem, 
            fill = interaction(SampleType2, AgeGroup2))) +
   geom_bar(stat = "identity", colour = "black", position = position_dodge(width = .9)) + 
-  scale_fill_manual(values = c("Healthy.≤50" = "#348334",
-                               "Healthy.≥60" = "#C368D8",
-                               "COVID-19.≤50" = "#72687F",
+  scale_fill_manual(values = c("Healthy.≤50" = "#338233",
+                               "Healthy.≥60" = "#BFE4BF",
+                               "COVID-19.≤50" = "#C266D7",
                                "COVID-19.≥60" = "#D8CEE5"), name ="",
                     labels = c(expression("Healthy "<=50),
-                               expression("COVID-19 "<=50),
+                               expression("CV19 "<=50),
                                expression("Healthy ">=60),
-                               expression("COVID-19 ">=60))) + xlab("") +
+                               expression("CV19 ">=60))) + xlab("") +
   scale_y_continuous(labels = scales::percent, name = "Proportion of repertoire", limits = c(0, 0.3)) + facet_wrap(~ Subclass, scales = "free_x") +
   geom_errorbar(position = position_dodge(0.9), width = 0.2) +
   cowplot::theme_cowplot() + 
@@ -1070,7 +1076,7 @@ j_usage <- list(
   "isotype" = ddply(test_data[which(test_data$SampleType2 %in% c("COVID-19", "Healthy") &
                                   test_data$AgeGroup2 %in% c("geq60", "leq50")),], 
                 c("Subclass", "Jfamily", "AgeGroup2", "SampleType2", "PatientID"), nrow, .drop = FALSE),
-  "IgM Memory" = ddply(test_data[which(test_data$Class == "M" &
+  "IgM mutated" = ddply(test_data[which(test_data$Class == "M" &
                                          test_data$MutationalStatus == "Mutated" &
                                          test_data$SampleType2 %in% c("COVID-19", "Healthy") &
                                          test_data$AgeGroup2 %in% c("geq60", "leq50")), ],
@@ -1081,7 +1087,7 @@ j_usage <- getPercentagesFromCountTbList( j_usage, category_name = "Jfamily" )
 # label the observations
 j_usage[["all"]]$Subclass <- "all sequences"
 #j_usage[["isotype"]]$Subclass <- paste("Ig", j_usage$isotype$Class, sep = "")
-j_usage[["IgM Memory"]]$Subclass <- "IgM memory"
+j_usage[["IgM mutated"]]$Subclass <- "IgM mutated"
 
 # combine the tables
 j_usage <- do.call("rbind", lapply(j_usage, function(tb){
@@ -1095,11 +1101,11 @@ j_usage0.5 <- ddply(j_usage, c("AgeGroup2", "SampleType2", "Jfamily", "Subclass"
                     sem = sd(perc, na.rm = TRUE) / (length(unique(PatientID)))^0.5)
 
 # Select only the labels you want
-j_usage1 <- j_usage0.5[j_usage0.5$Subclass %in% c("all sequences", "IgA1", "IgG1", "IgM memory"), ]
+j_usage1 <- j_usage0.5[j_usage0.5$Subclass %in% c("all sequences", "IgA1", "IgG1", "IgM mutated"), ]
 
 # this below controls the order these plots are shown
 j_usage1$Subclass <- factor(j_usage1$Subclass, 
-                            levels = c("all sequences", "IgM memory", "IgA1", "IgG1"))
+                            levels = c("all sequences", "IgM mutated", "IgA1", "IgG1"))
 
 # Select disease states & age group
 j_usage1 <- j_usage1[j_usage1$SampleType2 %in% c("COVID-19", "Healthy"), ]
@@ -1159,7 +1165,7 @@ g_j_disease <- ggplot(j_usage1.1[[1]], aes(x = AgeGroup1, y = gene, fill = diff,
   geom_point(pch = 21) + xlab("Age") + ylab("") +
   scale_x_discrete(labels = c(expression(""<=50), expression("">=60)), name = "Age") +
   scale_fill_gradient2(low = "blue", high = "red", midpoint = 0, mid = "white",  
-                       name = "% difference\n(COVID-19 vs\nHealthy)", labels = scales::percent, limits = c(-0.05, 0.05)) + 
+                       name = "% difference\n(CV19 vs\nHealthy)", labels = scales::percent, limits = c(-0.05, 0.05)) + 
   guides(fill = guide_colourbar(label.theme = element_text(angle = 45, hjust = 1))) +
   scale_size_manual(values = c("TRUE" = 8, "FALSE" = 1), name = "p < 0.05") + 
   cowplot::theme_cowplot() + theme(legend.position = "bottom", legend.box = "vertical", strip.text.x = element_text(size = 10)) +
@@ -1171,7 +1177,7 @@ g_j_age <- ggplot(j_usage1.1[[2]], aes(x = SampleType1, y = gene, fill = diff, s
                        name = "% difference\n(g60 vs l50)", labels = scales::percent, limits = c(-0.05, 0.05)) + 
   scale_size_manual(values = c("TRUE" = 8, "FALSE" = 1), name = "p < 0.05") + 
   guides(fill = guide_colourbar(label.theme = element_text(angle = 45, hjust = 1)),
-         size = FALSE) +
+         size = FALSE) + scale_x_discrete(labels = c("Healthy", "CV19"), name = "") +
   cowplot::theme_cowplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1),
                                    legend.position = "bottom", legend.box = "vertical", strip.text.x = element_text(size = 10)) + 
   facet_wrap(~ type, nrow = 1)
@@ -1190,14 +1196,14 @@ ggplot(j_usage1[which(j_usage1$Jfamily %in% j_usage1.1[[1]]$gene), ],
            ymax = mean_perc +sem, 
            fill = interaction(SampleType2, AgeGroup2))) +
   geom_bar(stat = "identity", colour = "black", position = position_dodge(width = .9)) + 
-  scale_fill_manual(values = c("Healthy.≤50" = "#348334",
-                               "Healthy.≥60" = "#C368D8",
-                               "COVID-19.≤50" = "#72687F",
+  scale_fill_manual(values = c("Healthy.≤50" = "#338233",
+                               "Healthy.≥60" = "#BFE4BF",
+                               "COVID-19.≤50" = "#C266D7",
                                "COVID-19.≥60" = "#D8CEE5"), name ="",
                     labels = c(expression("Healthy "<=50),
-                               expression("COVID-19 "<=50),
+                               expression("CV19 "<=50),
                                expression("Healthy ">=60),
-                               expression("COVID-19 ">=60))) + xlab("") +
+                               expression("CV19 ">=60))) + xlab("") +
   scale_y_continuous(labels = scales::percent, name = "Proportion of repertoire", limits = c(0, 0.7)) + facet_wrap(~ Subclass, scales = "free_x") +
   geom_errorbar(position = position_dodge(0.9), width = 0.2) +
   cowplot::theme_cowplot() + 
@@ -1210,7 +1216,7 @@ V,D,J together:
 
 ```{r fig.width=9, fig.height=16}
 cowplot::plot_grid(
-  g_v_disease + ggtitle("COVID-19 vs Healthy"), g_v_age + ggtitle("Age differences"),
+  g_v_disease + ggtitle("CV19 vs Healthy"), g_v_age + ggtitle("Age differences"),
   g_d_disease, g_d_age, g_j_disease, g_j_age, nrow = 3, align = "hv", axis = "tblr",
   rel_heights = c(1.5, 1.2, 1)
 )
@@ -1241,14 +1247,14 @@ cowplot::plot_grid(
                    ymax = mean_perc +sem, 
                    fill = interaction(SampleType2, AgeGroup2))) +
             geom_bar(stat = "identity", colour = "black", position = position_dodge(width = .9)) + 
-            scale_fill_manual(values = c("Healthy.≤50" = "#348334",
-                                         "Healthy.≥60" = "#C368D8",
-                                         "COVID-19.≤50" = "#72687F",
+            scale_fill_manual(values = c("Healthy.≤50" = "#338233",
+                                         "Healthy.≥60" = "#BFE4BF",
+                                         "COVID-19.≤50" = "#C266D7",
                                          "COVID-19.≥60" = "#D8CEE5"), name ="",
                               labels = c(expression("Healthy "<=50),
-                                         expression("COVID-19 "<=50),
+                                         expression("CV19 "<=50),
                                          expression("Healthy ">=60),
-                                         expression("COVID-19 ">=60))) + xlab("") +
+                                         expression("CV19 ">=60))) + xlab("") +
             scale_y_continuous(labels = scales::percent, name = "Proportion of repertoire") + 
             facet_wrap(Subclass ~ genetype, scales = "free", ncol = 1) +
             geom_errorbar(position = position_dodge(0.9), width = 0.2) +

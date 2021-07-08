@@ -318,7 +318,8 @@ cluster_large$cluster <- factor(cluster_large$cluster,
 # n sequences per cluster
 g1 <- ggplot(cluster_large, aes(x = cluster, y = V1, fill = SampleType2)) + geom_bar(stat = "identity") +
   cowplot::theme_cowplot() + theme(axis.text.x = element_blank()) + 
-  scale_fill_manual(values = c("Healthy" = "#7FC97F", "Ebola" = "#FFFF99"), name = "") +
+  scale_fill_manual(values = c("Healthy" = "#7FC97F", "Ebola" = "#FFFF99"), name = "",
+                    labels = c("EBOV", "Healthy")) +
   xlab("Convergent clusters") +ylab("Number of\nsequences") + ggtitle("Clusters with 10 or more\nsequences (n = 8)")
 # Vgene usage
 g2 <- ggplot(cluster_large, aes(x = cluster, y = Vgene)) + geom_tile(fill = "black") +
@@ -329,18 +330,8 @@ g3 <- ggplot(cluster_large, aes(x = cluster, y = Jfamily)) + geom_tile(fill = "b
   cowplot::theme_cowplot() + theme(axis.text.x = element_blank(),
                                    axis.ticks.x = element_blank()) + xlab("Convergent clusters") +ylab("J usage")
 
-# similarity between sequences within the same cluster
-converge <- merge(converge, membership[, c("Seq_ID", "cluster")], by.x = "Seq1", 
-                  by.y = "Seq_ID", all.x = TRUE, all.y = FALSE, sort = FALSE)
-converge_large <- converge[which(converge$cluster %in% cluster_large$cluster), ]
-converge_large$cluster <- factor(converge_large$cluster, levels = levels(cluster_large$cluster))
-g4 <- ggplot(converge_large, aes(x = cluster, y = identity)) + 
-  stat_summary(fun.min = min, fun.max = max, fun = median) + xlab("Convergent clusters") + 
-  scale_y_continuous(labels = scales::percent, name="CDRH3 AA\nidentity (%)") +
-  cowplot::theme_cowplot() + theme(axis.text.x = element_blank(),
-                                   axis.ticks.x = element_blank()) 
-
-cowplot::plot_grid(g1, g2, g3, g4, ncol = 1, axis = "lr", align = "v", rel_heights = c(1.5, 1.5, 1, 1))
+cowplot::plot_grid(g1, g2, g3, 
+                   ncol = 1, axis = "lr", align = "v", rel_heights = c(2, 2, 1.3))
 ```
 
 Clusters of sequences with both repertoire sequences and known binders - what are the targets?

@@ -136,6 +136,11 @@ distFromGermline_median <- ddply(distFromGermline,
 distFromGermline_median <- distFromGermline_median[ order(distFromGermline_median$dist_median), ]
 distFromGermline_count$CloneID <- factor(distFromGermline_count$CloneID,
                                          levels = unique(distFromGermline_median$CloneID))
+distFromGermline_count$SampleType2 <- factor(distFromGermline_count$SampleType2,
+                                             levels = c("Healthy", "COVID-19", "COVID-19Recovered",
+                                                        "Ebola", "RSV-I", "RSV-U", "YFVD28"),
+                                             labels = c("Healthy", "CV19", "CV19-Recovered",
+                                                        "EBOV", "RSV-I", "RSV-U", "YFVD28"))
 
 plotDistGermlineHeatmap <- function(tb, title)
 {
@@ -158,8 +163,8 @@ plotDistGermlineHeatmap(
 ```{r fig.width=11, fig.height=10}
 plotDistGermlineHeatmap(
   distFromGermline_count[which(distFromGermline_count$SampleType2 %in%
-                                         c("COVID-19", "COVID-19Recovered")), ],
-  "all clones - COVID-19"
+                                         c("CV19", "CV19-Recovered")), ],
+  "all clones - CV19"
 )
 ```
 
@@ -168,8 +173,8 @@ plotDistGermlineHeatmap(
 ```{r fig.width=11, fig.height=10}
 plotDistGermlineHeatmap(
   distFromGermline_count[which(distFromGermline_count$SampleType2 %in%
-                                         c("RSV-I", "RSV-U", "Ebola")), ],
-  "all clones - RSV + Ebola"
+                                         c("RSV-I", "RSV-U", "EBOV")), ],
+  "all clones - RSV + EBOV"
 )
 
 ```
@@ -223,7 +228,9 @@ distFromGermline_median$SampleType2 <- factor(distFromGermline_median$SampleType
                                           levels = c("Healthy", "COVID-19",
                                                      "COVID-19Recovered",
                                                      "Ebola", "RSV-I", "RSV-U",
-                                                     "YFVD28"))
+                                                     "YFVD28"),
+                                          labels = c("Healthy", "CV19", "CV19-Recovered",
+                                                     "EBOV", "RSV-I", "RSV-U", "YFVD28"))
 
 # clone percentile vs dist-from-germline percentile curves
 g1 <- ggplot(distFromGermline_median[which(!is.na(distFromGermline_median$SampleType2)), ], 
@@ -253,9 +260,9 @@ distFromGermline_AUC$AUC <- apply(
   function(x) getAUC(distFromGermline_median[[paste0(x[2], ".", x[1])]])
 )
 distFromGermline_AUC$SampleType2 <- factor(distFromGermline_AUC$SampleType2,
-                                          levels = c("Healthy", "COVID-19",
-                                                     "COVID-19Recovered",
-                                                     "Ebola", "RSV-I", "RSV-U",
+                                          levels = c("Healthy", "CV19",
+                                                     "CV19-Recovered",
+                                                     "EBOV", "RSV-I", "RSV-U",
                                                      "YFVD28"))
 distFromGermline_AUC <- distFromGermline_AUC[which(!is.na(distFromGermline_AUC$SampleType2)), ]
 
@@ -333,7 +340,7 @@ distFromGermline_AUC$SampleType <- factor(distFromGermline_AUC$SampleType,
                                           levels = c("Healthy", "COVID", "EB",
                                                      "Infected",
                                                      "Uninfected", "YF"),
-                                          labels = c("Healthy", "COVID-19", "Ebola",
+                                          labels = c("Healthy", "CV19", "EBOV",
                                                      "RSV-I", "RSV-U", "YFVD28"))
 distFromGermline_AUC$TimePoint <- factor(distFromGermline_AUC$TimePoint,
                                          levels = c("0", "nd", "2", "3", "5",
@@ -357,14 +364,14 @@ Showing only COVID-19 with side-by-side Healthy and Ebola boxplots:
 ```{r fig.width=3.5, fig.height=3}
 
 cowplot::plot_grid(
-  ggplot(distFromGermline_AUC_all[which(distFromGermline_AUC_all$SampleType2 %in% c("Healthy", "Ebola")),], aes(x = SampleType2, y = AUC)) + 
+  ggplot(distFromGermline_AUC_all[which(distFromGermline_AUC_all$SampleType2 %in% c("Healthy", "EBOV")),], aes(x = SampleType2, y = AUC)) + 
   geom_hline(yintercept = median(distFromGermline_AUC[ which(distFromGermline_AUC$SampleType == "Healthy"), "AUC"],
                                  na.rm = TRUE), linetype = "dashed") +
   geom_boxplot(outlier.shape = NA) + geom_point() + ylim(0, 1) +
   cowplot::theme_cowplot() + xlab("") + ylab("Germline likeness") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), 
         plot.margin = margin(10, 2, 2, 2), legend.position = "bottom"),
-  ggplot(distFromGermline_AUC[which(distFromGermline_AUC$SampleType == "COVID-19"), ], 
+  ggplot(distFromGermline_AUC[which(distFromGermline_AUC$SampleType == "CV19"), ], 
          aes(x = TimePoint, y = AUC, group = PatientId)) +
     geom_hline(yintercept = median(distFromGermline_AUC[ which(distFromGermline_AUC$SampleType == "Healthy"), "AUC"],
                                  na.rm = TRUE), linetype = "dashed") + ylim(0, 1) +
@@ -377,7 +384,7 @@ cowplot::plot_grid(
 )
 
 # statistical test (Jonckheere-Terpstra test for trend)
-print(DescTools::JonckheereTerpstraTest(AUC ~ TimePoint, data = distFromGermline_AUC[which(distFromGermline_AUC$SampleType == "COVID-19"), ]))
+print(DescTools::JonckheereTerpstraTest(AUC ~ TimePoint, data = distFromGermline_AUC[which(distFromGermline_AUC$SampleType == "CV19"), ]))
 ```
 
 \newpage
@@ -426,7 +433,9 @@ distFromGermline_AUC$SampleType2 <- factor(distFromGermline_AUC$SampleType2,
                                           levels = c("Healthy", "COVID-19",
                                                      "COVID-19Recovered",
                                                      "Ebola", "RSV-I", "RSV-U",
-                                                     "YFVD28"))
+                                                     "YFVD28"),
+                                          labels = c("Healthy", "CV19", "CV19-Recovered",
+                                                     "EBOV", "RSV-I", "RSV-U", "YFVD28"))
 distFromGermline_AUC <- distFromGermline_AUC[which(!is.na(distFromGermline_AUC$SampleType2)), ]
 distFromGermline_AUC$Class <- factor(distFromGermline_AUC$Class,
                                      levels = c("M", "G", "A"),
@@ -502,7 +511,9 @@ distFromGermline_AUC$SampleType2 <- factor(distFromGermline_AUC$SampleType2,
                                           levels = c("Healthy", "COVID-19",
                                                      "COVID-19Recovered",
                                                      "Ebola", "RSV-I", "RSV-U",
-                                                     "YFVD28"))
+                                                     "YFVD28"),
+                                          labels = c("Healthy", "CV19", "CV19-Recovered",
+                                                     "EBOV", "RSV-I", "RSV-U", "YFVD28"))
 distFromGermline_AUC <- distFromGermline_AUC[which(!is.na(distFromGermline_AUC$SampleType2)), ]
 distFromGermline_AUC$Subclass <- factor(distFromGermline_AUC$Subclass,
                                      levels = c("IgM", "IgG1", "IgG2", "IgG3", "IgG4",
@@ -604,7 +615,9 @@ distFromGermline_median$SampleType2 <- factor(distFromGermline_median$SampleType
                                           levels = c("Healthy", "COVID-19",
                                                      "COVID-19Recovered",
                                                      "Ebola", "RSV-I", "RSV-U",
-                                                     "YFVD28"))
+                                                     "YFVD28"),
+                                          labels = c("Healthy", "CV19", "CV19-Recovered",
+                                                     "EBOV", "RSV-I", "RSV-U", "YFVD28"))
 
 # clone percentile vs V-identity percentile
 g1 <- ggplot(distFromGermline_median[which(!is.na(distFromGermline_median$SampleType2)), ], 
@@ -628,9 +641,9 @@ distFromGermline_AUC$AUC <- apply(
   function(x) getAUC(distFromGermline_median[[paste0(x[2], ".", x[1])]])
 )
 distFromGermline_AUC$SampleType2 <- factor(distFromGermline_AUC$SampleType2,
-                                          levels = c("Healthy", "COVID-19",
-                                                     "COVID-19Recovered",
-                                                     "Ebola", "RSV-I", "RSV-U",
+                                          levels = c("Healthy", "CV19",
+                                                     "CV19-Recovered",
+                                                     "EBOV", "RSV-I", "RSV-U",
                                                      "YFVD28"))
 distFromGermline_AUC <- distFromGermline_AUC[which(!is.na(distFromGermline_AUC$SampleType2)), ]
 distFromGermline_AUC <- merge(

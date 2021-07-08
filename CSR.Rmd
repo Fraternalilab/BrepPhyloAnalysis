@@ -1,5 +1,5 @@
 ---
-title: "Lineage and selection analysis of Covid Repertoires"
+title: "Class-switching analysis of Repertoires"
 author: "Joseph Ng"
 date: "8 April 2021"
 output: html_document
@@ -29,18 +29,18 @@ test_data$CloneID <- gsub(" ", "", test_data$CloneID)
 test_data$SampleType3 <- test_data$SampleType2
 test_data$SampleType3 <- replace(test_data$SampleType3,
                                  which(grepl("^CV", test_data$PatientID) & grepl("^FU", test_data$SampleName)),
-                                 "COVID-19")
+                                 "CV19")
 test_data$SampleType3 <- replace(test_data$SampleType3,
                                  which(test_data$PatientID %in% c("EB215", "EB216", "EB217")),
-                                 "Ebola - White")
+                                 "EBOV - White")
 test_data$SampleType3 <- replace(test_data$SampleType3,
                                  which(test_data$PatientID %in% c("E2", "E50", "E14", "E82", "E15", 
                                                                   "E43", "E46", "E70", "E75")),
-                                 "Ebola - West African")
+                                 "EBOV - West African")
 test_data$SampleType3 <- replace(test_data$SampleType3,
                                  which(test_data$PatientID %in% c("E2", "E50", "E14", "E82", "E15", 
                                                                   "E43", "E46", "E70", "E75")),
-                                 "Ebola - West African")
+                                 "EBOV - West African")
 
 ```
 
@@ -87,8 +87,8 @@ tree_stats <- merge(tree_stats,
 #____________________________
 tree_stats$SampleType2 <- apply(tree_stats[, c("startLabel", "endLabel", "PatientId")], MARGIN = 1, function(x){
   if(grepl("^CV", x[3])) return("COVID-19")
-  if(x[3] %in% c("EB215", "EB216", "EB217")) return("Ebola - White")
-  if(x[3] %in% c("E2", "E50", "E14", "E82", "E15", "E43", "E46", "E70", "E75")) return("Ebola - West African")
+  if(x[3] %in% c("EB215", "EB216", "EB217")) return("EBOV - White")
+  if(x[3] %in% c("E2", "E50", "E14", "E82", "E15", "E43", "E46", "E70", "E75")) return("EBOV - West African")
   if(grepl("^HB", x[3])) return("Healthy")
   if(x[3] == "YR001"){
     seq_names <- c(unlist(strsplit(x[1], split = "_"))[1], unlist(strsplit(x[2], split = "_"))[1])
@@ -133,9 +133,9 @@ tree_bySampleType$nClone_events <- tree_bySampleType$nEvent / tree_bySampleType$
 tree_bySampleType$AgeGroup <- factor(tree_bySampleType$AgeGroup,
                                    levels = c("Unknown", "Young", "Middle", "Old"))
 tree_bySampleType$SampleType2 <- factor(tree_bySampleType$SampleType2,
-                                      levels = c("Healthy", "COVID-19", "Ebola - White", "Ebola - West African",
+                                      levels = c("Healthy", "COVID-19", "EBOV - White", "EBOV - West African",
                                                  "RSV-I", "RSV-U", "YFVD28"),
-                                      labels = c("Healthy", "COVID-19", "Ebola", "Ebola",
+                                      labels = c("Healthy", "CV19", "EBOV", "EBOV",
                                                  "RSV-I", "RSV-U", "YFVD28"))
 tree_bySampleType$CloneGroup <- factor(tree_bySampleType$CloneGroup,
                                      levels = c("Unique", "2", "3", "4&5",
@@ -145,11 +145,14 @@ tree_bySampleType$CloneGroup <- factor(tree_bySampleType$CloneGroup,
 ```
 
 ```{r, fig.width=6, fig.height=6}
+# evaluate statistical significance in the occurrence of CSR events
 nEvent_test <- lapply(unique(tree_bySampleType$CloneGroup), function(x){
   require(multcomp)
   o <- lapply(1, function(y){#c("Young", "Middle", "Old"), function(y){
     lm_tb <- tree_bySampleType[which(tree_bySampleType$CloneGroup == x), ]
     colnames(lm_tb)[ which(colnames(lm_tb) == "SampleType2") ] <- "xxx"
+    
+    # One-way ANOVA
     if(nrow(lm_tb) > 0 & length(unique(lm_tb$xxx)) > 1 &
        sum(grepl("^Healthy", lm_tb$xxx)) > 0){
       onewayanova <- try( suppressWarnings(
@@ -157,6 +160,7 @@ nEvent_test <- lapply(unique(tree_bySampleType$CloneGroup), function(x){
           as.formula( paste("nClone_events", "xxx", sep = " ~ ")), data = lm_tb
         )), silent = TRUE)
       if( "aov" %in% class(onewayanova) ){
+        # Do Post-hoc test (Dunnett)
         p <- summary(onewayanova)[[1]][1,5]
         if( is.nan(p) ) posthoc <- NA else {
           posthoc <- glht(onewayanova, linfct = mcp(xxx = "Dunnett"))
@@ -178,11 +182,14 @@ nEvent_test <- lapply(unique(tree_bySampleType$CloneGroup), function(x){
 })
 nEvent_test <- do.call("rbind", nEvent_test)
 rownames(nEvent_test) <- NULL
+
+# put statistical test results back into the summary table
 tree_bySampleType <- merge(tree_bySampleType, nEvent_test, by.x = c("CloneGroup", "SampleType2"),
                          by.y = c("variable", "SampleType2"), sort = FALSE, all.x = TRUE)
 tree_bySampleType$sig <- (tree_bySampleType$pval < 0.05)
 tree_bySampleType$sig[is.na(tree_bySampleType$sig)] <- FALSE
 
+# plot
 ggplot(tree_bySampleType[!tree_bySampleType$CloneGroup %in% c("Unique", "2"), ], 
        aes(x = SampleType2, y = nClone_events, colour = sig)) + geom_boxplot() +
   geom_point(position = position_jitter(width = 0.2)) + 
@@ -194,9 +201,9 @@ ggplot(tree_bySampleType[!tree_bySampleType$CloneGroup %in% c("Unique", "2"), ],
 ```
 
 
-## Timing of class switching events
+## Distance-from-germline of class switching events
 
-Parsing arborescence graphs for CSR events and getting distances from germline.
+Parsing arborescence graphs for CSR events and getting distances from germline - this estimates when ('timing') a switch occurs, relative to the lineage.
 
 ```{r, fig.width=8, fig.height=6}
 # frequency & distFromGermline of CSR by agegroup/healthy
@@ -229,11 +236,14 @@ tree_bySampleType$endIsotype <- factor(tree_bySampleType$endIsotype,
 #tree_bySampleType$AgeGroup <- factor(tree_bySampleType$AgeGroup,
 #                                   levels = c("?", "Young", "Middle", "Old"))
 tree_bySampleType$SampleType2 <- factor(tree_bySampleType$SampleType2,
-                                          levels = c("Healthy", "COVID-19", "Ebola - White",
-                                                     "RSV-I", "RSV-U", "Ebola - West African"))
+                                          levels = c("Healthy", "COVID-19", "EBOV - White",
+                                                     "RSV-I", "RSV-U", "EBOV - West African"),
+                                        labels = c("Healthy", "CV19", "EBOV - White", "RSV-I",
+                                                   "RSV-U", "EBOV - West African"))
 
+#plot
 ggplot(tree_bySampleType[which(tree_bySampleType$SampleType2 %in% 
-                               c("Healthy", "COVID-19", "Ebola - White", "Ebola - West African", "RSV-I", "RSV-U") &
+                               c("Healthy", "CV19", "EBOV - White", "EBOV - West African", "RSV-I", "RSV-U") &
                                tree_bySampleType$endIsotype != "E"), ],#[which(!tree_bySampleType$SampleType %in% 
                       #         c("YFV Vaccine")), ], 
        aes(x = endIsotype, y = startIsotype, 
@@ -283,11 +293,12 @@ tree_byPatient$endIsotype <- factor(tree_byPatient$endIsotype,
 #tree_byPatient$AgeGroup <- factor(tree_byPatient$AgeGroup,
 #                                  levels = c("?", "Young", "Middle", "Old"))
 tree_byPatient$SampleType2 <- factor(tree_byPatient$SampleType2,
-                                    levels = c("Healthy", "COVID-19", "Ebola - West African", "Ebola - White",
+                                    levels = c("Healthy", "COVID-19", "EBOV - West African", "EBOV - White",
                                                "RSV-I", "RSV-U", "YFVD28"),
-                                    labels = c("Healthy", "COVID-19", "Ebola (West African)", "Ebola (White)",
+                                    labels = c("Healthy", "CV19", "EBOV (West African)", "EBOV (White)",
                                                "RSV-I", "RSV-U", "YFVD28"))
 
+# evaluate statistical significance
 timing_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2), 
                      MARGIN = 2, function(x){
   o <- lapply(1, function(y){#c("Young", "Middle", "Old"), function(y){
@@ -295,6 +306,8 @@ timing_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2),
                                     tree_byPatient$endIsotype == x[2]), ]
 #                                    tree_byPatient$AgeGroup == y), ]
     colnames(lm_tb)[which(colnames(lm_tb) == "SampleType2")] <- "xxx"
+    
+    # One-way ANOVA
     if(nrow(lm_tb) > 0 & length(unique(lm_tb$xxx)) > 1 &
        sum(grepl("^Healthy", lm_tb$xxx)) > 0){
       onewayanova <- try( suppressWarnings(
@@ -302,6 +315,7 @@ timing_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2),
           as.formula( paste("meanDist_from_germline", "xxx", sep = " ~ ")), data = lm_tb
         )), silent = TRUE)
       if( "aov" %in% class(onewayanova) ){
+        # Do Post-hoc test (Dunnett)
         p <- summary(onewayanova)[[1]][1,5]
         if( is.null(p) ) posthoc <- data.frame() else {
           posthoc <- glht(onewayanova, linfct = mcp(xxx = "Dunnett"))
@@ -345,7 +359,7 @@ tree_byPatient[is.na(tree_byPatient$signif_timing), "signif_timing"] <- FALSE
 ggplot(tree_byPatient[which(tree_byPatient$CSR %in% timing_test$CSR),],
        aes(x = SampleType2, y = meanDist_from_germline, colour = signif_timing)) +
   geom_boxplot() + geom_point() + cowplot::theme_cowplot() +
-  facet_grid(~ CSR) + xlab("") + ylab("CSR timing") +
+  facet_grid(~ CSR) + xlab("") + ylab("mean distance from germline") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)) +
   scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), name = "p < 0.05")
 ```
@@ -362,6 +376,8 @@ nEvent_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2),
                                     tree_byPatient$endIsotype == x[2]), ]
 #                                    tree_byPatient$AgeGroup == y), ]
     colnames(lm_tb)[which(colnames(lm_tb) == "SampleType2")] <- "xxx"
+    
+    # One-way ANOVA
     if(nrow(lm_tb) > 0 & length(unique(lm_tb$xxx)) > 1 &
        sum(grepl("^Healthy", lm_tb$xxx)) > 0){
       onewayanova <- try( suppressWarnings(
@@ -369,6 +385,7 @@ nEvent_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2),
           as.formula( paste("nClone_event", "xxx", sep = " ~ ")), data = lm_tb
         )), silent = TRUE)
       if( "aov" %in% class(onewayanova) ){
+        # Do Post-hoc test (Dunnett)
         p <- summary(onewayanova)[[1]][1,5]
         if( is.null(p) ) posthoc <- data.frame() else {
           posthoc <- glht(onewayanova, linfct = mcp(xxx = "Dunnett"))

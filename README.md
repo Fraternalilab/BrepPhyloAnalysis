@@ -20,3 +20,7 @@ This repository contain R markdown notebooks for analysis performed for this wor
 ### Folders
 
 * `known_binders`: Curation of known antibodies targetting specific antigens from the Protein Data Bank (PDB) & from the literature.
+
+### Others
+
+* `convergent_overlap.bib`: references used in the convergent network analysis in bibtex format.
