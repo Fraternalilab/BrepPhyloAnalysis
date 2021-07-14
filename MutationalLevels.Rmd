@@ -23,11 +23,13 @@ test_data <- test_data[ which(grepl("^IGH", test_data$Vfamily)), ]
 
 # set up age group
 test_data$AgeGroup <- test_data$Age
-test_data$AgeGroup[ which(as.numeric(test_data$Age) < 40 )] <-  "Young"
-test_data$AgeGroup[ which(as.numeric(test_data$Age) > 40 )] <-  "Middle"
-test_data$AgeGroup[ which(as.numeric(test_data$Age) > 65 )] <-  "Old"
-test_data$AgeGroup[ which(test_data$Age == "nd")] <- "?"
-test_data$AgeGroup[ which(test_data$Age == "Young")] <- "Young"
+test_data$AgeGroup[ which(as.numeric(test_data$Age) <= 50 )] <-  "<=50"
+test_data$AgeGroup[ which(as.numeric(test_data$Age) >= 60 )] <-  ">=60"
+test_data$AgeGroup[ which(as.numeric(test_data$Age) > 50 & as.numeric(test_data$Age < 60))] <- NA
+#test_data$AgeGroup[ which(as.numeric(test_data$Age) > 65 )] <-  "Old"
+test_data$AgeGroup[ which(test_data$Age == "nd")] <- NA
+test_data$AgeGroup[ which(test_data$Age == "Young")] <- "<=50"
+test_data$AgeGroup[ which(test_data$Age == "Old")] <- ">=60"
 colnames(test_data)[ncol(test_data)] <- "AgeGroup"
 
 # group RSV Day 0 as Healthy in a new SampleType definition
@@ -67,8 +69,8 @@ test_data$CloneGroup <- sapply(test_data$NumInClone, function(x){
 
 ```{r eval=FALSE}
 all_trees <- c(
-  list.files(path = '/media/josefng/My_Passport/CovidRepertoire/CovidHB_alltrees/all_trees', full.names = TRUE),
-  list.files(path = '/media/josefng/My_Passport/CovidRepertoire/otherReps_alltrees/newTrees', full.names = TRUE)
+  list.files(path = '/media/josephn/My_Passport/CovidRepertoire/CovidHB_alltrees/all_trees', full.names = TRUE),
+  list.files(path = '/media/josephn/My_Passport/CovidRepertoire/otherReps_alltrees/newTrees', full.names = TRUE)
 )
 distFromGermline <- lapply(all_trees, function(ts){
   tree <- ape::read.tree(ts)
@@ -290,6 +292,16 @@ g2 <- ggplot(distFromGermline_AUC, aes(x = SampleType2, y = AUC, colour = sig)) 
 cowplot::plot_grid(g1, g2,
                    nrow = 1, rel_widths = c(2,1))
 saveRDS(distFromGermline_AUC, "allreps_distFromGermline_AUC.rds")
+```
+
+Separate by age:
+```{r, fig.width=5, fig.height=4}
+ggplot(distFromGermline_AUC, 
+       aes(x = SampleType2, y = AUC, colour = AgeGroup)) + 
+    geom_boxplot(outlier.shape = NA) + geom_point(position = position_dodge(width = 0.7)) +
+    cowplot::theme_cowplot() + xlab("") + ylab("Germline likeness") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+          plot.margin = margin(10, 2, 2, 2), legend.position = "bottom")
 ```
 
 \newpage

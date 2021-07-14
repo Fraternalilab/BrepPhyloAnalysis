@@ -42,6 +42,16 @@ test_data$SampleType3 <- replace(test_data$SampleType3,
                                                                   "E43", "E46", "E70", "E75")),
                                  "EBOV - West African")
 
+# set up age group
+test_data$AgeGroup <- test_data$Age
+test_data$AgeGroup[ which(as.numeric(test_data$Age) <= 50 )] <-  "<=50"
+test_data$AgeGroup[ which(as.numeric(test_data$Age) >= 60 )] <-  ">=60"
+test_data$AgeGroup[ which(as.numeric(test_data$Age) > 50 & as.numeric(test_data$Age < 60))] <- NA
+#test_data$AgeGroup[ which(as.numeric(test_data$Age) > 65 )] <-  "Old"
+test_data$AgeGroup[ which(test_data$Age == "nd")] <- NA
+test_data$AgeGroup[ which(test_data$Age == "Young")] <- "<=50"
+test_data$AgeGroup[ which(test_data$Age == "Old")] <- ">=60"
+#colnames(test_data)[ncol(test_data)] <- "AgeGroup"
 ```
 
 # Lineage
@@ -131,7 +141,7 @@ tree_bySampleType <- merge(tree_bySampleType,
                          by.x = "PatientId", by.y = "PatientID", sort = FALSE)
 tree_bySampleType$nClone_events <- tree_bySampleType$nEvent / tree_bySampleType$nClone
 tree_bySampleType$AgeGroup <- factor(tree_bySampleType$AgeGroup,
-                                   levels = c("Unknown", "Young", "Middle", "Old"))
+                                   levels = c("<=50", ">=60"))
 tree_bySampleType$SampleType2 <- factor(tree_bySampleType$SampleType2,
                                       levels = c("Healthy", "COVID-19", "EBOV - White", "EBOV - West African",
                                                  "RSV-I", "RSV-U", "YFVD28"),
@@ -200,6 +210,18 @@ ggplot(tree_bySampleType[!tree_bySampleType$CloneGroup %in% c("Unique", "2"), ],
   facet_wrap(~ CloneGroup, ncol = 1, strip.position = "right")
 ```
 
+Split by age:
+
+```{r, fig.width=7, fig.height=6}
+ggplot(tree_bySampleType[!tree_bySampleType$CloneGroup %in% c("Unique", "2"), ], 
+       aes(x = SampleType2, y = nClone_events, colour = AgeGroup)) + geom_boxplot() +
+    geom_point(position = position_dodge(width = 0.7)) + 
+    scale_y_continuous(labels = scales::percent, limits = c(0, 0.2), 
+                       name = "% clones with CSR events") +
+    cowplot::theme_cowplot() + xlab("") + theme(legend.position = "bottom") +
+    facet_wrap(~ CloneGroup, ncol = 1, strip.position = "right")
+
+```
 
 ## Distance-from-germline of class switching events
 
@@ -364,6 +386,129 @@ ggplot(tree_byPatient[which(tree_byPatient$CSR %in% timing_test$CSR),],
   scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), name = "p < 0.05")
 ```
 
+Split by age group. Model $Y = \text{agegroup}\ *\ \text{SampleType} $ and Tukey's post-hoc test.
+
+```{r}
+# Individual patients:
+# frequency & distFromGermline of CSR by agegroup/healthy
+tree_byPatient <- ddply(
+  tree_stats[which(!is.na(tree_stats$SampleType2)), ], 
+  c("SampleType2", "AgeGroup", "PatientId", "startIsotype", "endIsotype"),
+  summarise,
+  nEvent = length(unique(CloneID)),
+  meanDist_from_germline = mean(distFromGermline, na.rm = TRUE)
+)
+tree_byPatient <- merge(tree_byPatient,
+                         ddply(test_data[which(test_data$NumInClone >= 3 & test_data$SampleType2 != "Infected"),], 
+                               c("PatientID"), summarise, 
+                               nClone = length(unique(CloneID))),
+                        by.x = "PatientId", by.y = "PatientID", sort = FALSE)
+tree_byPatient$nClone_event <- tree_byPatient$nEvent / tree_byPatient$nClone
+tree_byPatient <- tree_byPatient[which(grepl("Ig[MDE]|IgA[12]|IgG[1-4]",
+                                               tree_byPatient$startIsotype) &
+                                           grepl("Ig[MDE]|IgA[12]|IgG[1-4]",
+                                               tree_byPatient$endIsotype)), ]
+tree_byPatient$startIsotype <- factor(tree_byPatient$startIsotype,
+                                       levels = c("IgM", "IgG3", "IgG1", "IgA1",
+                                                  "IgG2", "IgG4", "IgE", "IgA2"),
+                                       labels = c("M", "G3", "G1", "A1", "G2",
+                                                  "G4", "E", "A2"))
+tree_byPatient$endIsotype <- factor(tree_byPatient$endIsotype,
+                                     levels = c("IgM", "IgG3", "IgG1", "IgA1",
+                                                "IgG2", "IgG4", "IgE", "IgA2"),
+                                       labels = c("M", "G3", "G1", "A1", "G2",
+                                                  "G4", "E", "A2"))
+#tree_byPatient$AgeGroup <- factor(tree_byPatient$AgeGroup,
+#                                  levels = c("?", "Young", "Middle", "Old"))
+tree_byPatient$SampleType2 <- factor(tree_byPatient$SampleType2,
+                                    levels = c("Healthy", "COVID-19", "EBOV - West African", "EBOV - White",
+                                               "RSV-I", "RSV-U", "YFVD28"),
+                                    labels = c("Healthy", "CV19", "EBOV (West African)", "EBOV (White)",
+                                               "RSV-I", "RSV-U", "YFVD28"))
+
+# evaluate statistical significance
+timing_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2), 
+                     MARGIN = 2, function(x){
+  o <- lapply(1, function(y){#c("Young", "Middle", "Old"), function(y){
+    lm_tb <- tree_byPatient[which(tree_byPatient$startIsotype == x[1] &
+                                    tree_byPatient$endIsotype == x[2]), ]
+#                                    tree_byPatient$AgeGroup == y), ]
+    # colnames(lm_tb)[which(colnames(lm_tb) == "SampleType2")] <- "xxx"
+    lm_tb$AgeSample <- interaction(lm_tb$AgeGroup, lm_tb$SampleType2)
+    # Two-way ANOVA
+    if(nrow(lm_tb) > 0 & length(unique(lm_tb$SampleType2)) > 1 &
+       sum(grepl("^Healthy", lm_tb$SampleType2)) > 0){
+      twowayanova <- try( suppressWarnings(
+        aov(
+          as.formula( paste("meanDist_from_germline ~ AgeSample - 1")), data = lm_tb
+        )), silent = TRUE)
+      if( "aov" %in% class(twowayanova) ){
+        # Do Post-hoc test (Dunnett)
+        p <- summary(twowayanova)[[1]][1,5]
+        if( is.null(p) ) posthoc <- data.frame() else {
+          Tukey <- table(lm_tb$AgeSample)
+          Tukey <- contrMat(Tukey[Tukey > 0], "Tukey")
+          # comparison of either sample age group & any sample type vs Healthy, or
+          # same sample type & different age groups
+          Tukey <- list(
+            Tukey[which(grepl("Healthy", rownames(Tukey)) & stringr::str_count(rownames(Tukey), "<=50") != 1), ],
+            Tukey[which(sapply(stringr::str_extract_all(rownames(Tukey), "\\.([A-Za-z\\-]*)"), 
+                               function(z) z[1] ==z[2])), ]
+          )
+          Tukey <- do.call("rbind", Tukey)
+          posthoc <- glht(twowayanova, linfct = Tukey)
+          posthoc <- summary(posthoc)
+          signif_comparison <- 1:length(posthoc$test$pvalues)#which(posthoc$test$pvalues < 0.05)
+          if( length(signif_comparison) > 0){
+            posthoc <- lapply(signif_comparison, function(y){
+              data.frame(startIsotype = x[1], endIsotype = x[2],
+                         group1 = unlist(strsplit(names(posthoc$test$coefficients)[y], split = " - "))[1],
+                         group2 = unlist(strsplit(names(posthoc$test$coefficients)[y], split = " - "))[2],
+                         pval = round(posthoc$test$pvalues[y], 4))
+            })
+            posthoc <- do.call("rbind", posthoc)
+          } else posthoc <- data.frame()
+        }
+      } else return(data.frame())
+    } else return(data.frame())
+  })
+  do.call("rbind", o)
+})
+timing_test <- do.call("rbind", timing_test)
+rownames(timing_test) <- NULL
+#timing_test <- timing_test
+timing_test[timing_test$pval < 0.05, ]
+```
+
+```{r, fig.width=8, fig.height=8}
+# plot
+tree_byPatient$CSR <- apply(tree_byPatient[, c("startIsotype", "endIsotype")],
+                            MARGIN = 1, function(x) paste(x[1], x[2], sep = " to "))
+timing_test$CSR <- apply(timing_test[, c("startIsotype", "endIsotype")],
+                         MARGIN = 1, function(x) paste(x[1], x[2], sep = " to "))
+
+# plot those with significant differences in at least 1 sample type
+cowplot::plot_grid(
+  ggplot(tree_byPatient[which(tree_byPatient$CSR %in% timing_test[timing_test$pval < 0.05, "CSR"] & 
+                              !is.na(tree_byPatient$AgeGroup) &
+                              tree_byPatient$SampleType2 %in% c("Healthy", "CV19", "EBOV (White)")),],
+       aes(x = SampleType2, y = meanDist_from_germline, colour = AgeGroup)) +
+  geom_boxplot() + geom_point(position = position_jitterdodge()) + cowplot::theme_cowplot() +
+  facet_grid(~ CSR) + xlab("") + ylab("mean distance from germline") + ylim(0, 0.28) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)),
+  ggplot(tree_byPatient[which(tree_byPatient$CSR %in% timing_test[timing_test$pval < 0.05, "CSR"] & 
+                              !is.na(tree_byPatient$AgeGroup) &
+                              tree_byPatient$SampleType2 %in% c("Healthy", "RSV-I", "RSV-U")),],
+       aes(x = SampleType2, y = meanDist_from_germline, colour = AgeGroup)) +
+  geom_boxplot() + geom_point(position = position_jitterdodge()) + cowplot::theme_cowplot() +
+  facet_grid(~ CSR) + xlab("") + ylab("mean distance from germline") + ylim(0, 0.28) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)),
+  ncol = 1
+)
+
+```
+
+
 ## Statistical test: CSR event count
 
 only shown those with p < 0.05:
@@ -435,3 +580,86 @@ ggplot(tree_byPatient[which(tree_byPatient$CSR %in% nEvent_test$CSR),],
   scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), name = "p < 0.05")
 ```
 
+Split by age group. Model $Y = \text{agegroup}\ *\ \text{SampleType} $ and Tukey's post-hoc test.
+
+```{r}
+# evaluate statistical significance
+nEvent_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2), 
+                     MARGIN = 2, function(x){
+  o <- lapply(1, function(y){#c("Young", "Middle", "Old"), function(y){
+    lm_tb <- tree_byPatient[which(tree_byPatient$startIsotype == x[1] &
+                                    tree_byPatient$endIsotype == x[2]), ]
+#                                    tree_byPatient$AgeGroup == y), ]
+    # colnames(lm_tb)[which(colnames(lm_tb) == "SampleType2")] <- "xxx"
+    lm_tb$AgeSample <- interaction(lm_tb$AgeGroup, lm_tb$SampleType2)
+    # Two-way ANOVA
+    if(nrow(lm_tb) > 0 & length(unique(lm_tb$SampleType2)) > 1 &
+       sum(grepl("^Healthy", lm_tb$SampleType2)) > 0){
+      twowayanova <- try( suppressWarnings(
+        aov(
+          as.formula( paste("nClone_event ~ AgeSample - 1")), data = lm_tb
+        )), silent = TRUE)
+      if( "aov" %in% class(twowayanova) ){
+        # Do Post-hoc test (Dunnett)
+        p <- summary(twowayanova)[[1]][1,5]
+        if( is.null(p) ) posthoc <- data.frame() else {
+          Tukey <- table(lm_tb$AgeSample)
+          Tukey <- contrMat(Tukey[Tukey > 0], "Tukey")
+          # comparison of either sample age group & any sample type vs Healthy, or
+          # same sample type & different age groups
+          Tukey <- list(
+            Tukey[which(grepl("Healthy", rownames(Tukey)) & stringr::str_count(rownames(Tukey), "<=50") != 1), ],
+            Tukey[which(sapply(stringr::str_extract_all(rownames(Tukey), "\\.([A-Za-z\\-]*)"), 
+                               function(z) z[1] ==z[2])), ]
+          )
+          Tukey <- do.call("rbind", Tukey)
+          posthoc <- glht(twowayanova, linfct = Tukey)
+          posthoc <- summary(posthoc)
+          signif_comparison <- 1:length(posthoc$test$pvalues)#which(posthoc$test$pvalues < 0.05)
+          if( length(signif_comparison) > 0){
+            posthoc <- lapply(signif_comparison, function(y){
+              data.frame(startIsotype = x[1], endIsotype = x[2],
+                         group1 = unlist(strsplit(names(posthoc$test$coefficients)[y], split = " - "))[1],
+                         group2 = unlist(strsplit(names(posthoc$test$coefficients)[y], split = " - "))[2],
+                         pval = round(posthoc$test$pvalues[y], 4))
+            })
+            posthoc <- do.call("rbind", posthoc)
+          } else posthoc <- data.frame()
+        }
+      } else return(data.frame())
+    } else return(data.frame())
+  })
+  do.call("rbind", o)
+})
+nEvent_test <- do.call("rbind", nEvent_test)
+rownames(nEvent_test) <- NULL
+#nEvent_test <- nEvent_test
+nEvent_test[nEvent_test$pval < 0.05, ]
+```
+
+```{r, fig.width=11, fig.height=8}
+nEvent_test$CSR <- apply(nEvent_test[, c("startIsotype", "endIsotype")],
+                         MARGIN = 1, function(x) paste(x[1], x[2], sep = " to "))
+# plot those with significant differences in at least 1 sample type
+g1 <- ggplot(tree_byPatient[which(tree_byPatient$CSR %in% nEvent_test[nEvent_test$pval < 0.05, "CSR"] & 
+                              # grepl("^M", tree_byPatient$CSR) & 
+                              !is.na(tree_byPatient$AgeGroup) &
+                              tree_byPatient$SampleType2 %in% c("Healthy", "CV19", "EBOV (White)")),],
+       aes(x = SampleType2, y = nClone_event, colour = AgeGroup)) +
+  geom_boxplot() + geom_point(position = position_jitterdodge()) + cowplot::theme_cowplot() +
+  facet_grid(~ CSR) + xlab("") + ylab("% clones with CSR events") + ylim(0, 0.1) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10), legend.position = "bottom")
+
+g2 <- ggplot(tree_byPatient[which(tree_byPatient$CSR %in% nEvent_test[nEvent_test$pval < 0.05, "CSR"] & 
+                              # grepl("^M", tree_byPatient$CSR) & 
+                              !is.na(tree_byPatient$AgeGroup) &
+                              tree_byPatient$SampleType2 %in% c("Healthy", "RSV-I", "RSV-U")),],
+       aes(x = SampleType2, y = nClone_event, colour = AgeGroup)) +
+  geom_boxplot() + geom_point(position = position_jitterdodge()) + cowplot::theme_cowplot() +
+  facet_grid(~ CSR) + xlab("") + ylab("% clones with CSR events") + ylim(0, 0.1) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10), legend.position = "bottom")
+
+cowplot::plot_grid(g1 + ggtitle("CV / EBOV"), g2 + ggtitle("RSV"), ncol = 1)
+```
+
+Differences driven by Age $\leq50$ samples? But probably simply because more data points?
