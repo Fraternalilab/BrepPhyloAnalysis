@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE, fig.path = "MutationalLevels_plots/",
                       dev = "svg")
 library(plyr)
 library(ggplot2)
+library(multcomp)
 #library(shazam)
 
 ```
@@ -17,7 +18,7 @@ library(ggplot2)
 Analysis of mutational levels of BCR clones by using tree-based distances, in repertoires collected from individuals with different immunological states.
 
 ```{r loaddata, include=FALSE}
-test_data <- read.table('/media/josephn/My_Passport/CovidRepertoire/AllCV+AllHC+AllRSV+AllEB_wo10XYF.txt', header = TRUE, sep = "\t",
+test_data <- read.table('/media/josefng//My_Passport/CovidRepertoire/AllCV+AllHC+AllRSV+AllEB_wo10XYF.txt', header = TRUE, sep = "\t",
                       stringsAsFactors = FALSE)
 test_data <- test_data[ which(grepl("^IGH", test_data$Vfamily)), ]
 
@@ -69,8 +70,8 @@ test_data$CloneGroup <- sapply(test_data$NumInClone, function(x){
 
 ```{r eval=FALSE}
 all_trees <- c(
-  list.files(path = '/media/josephn/My_Passport/CovidRepertoire/CovidHB_alltrees/all_trees', full.names = TRUE),
-  list.files(path = '/media/josephn/My_Passport/CovidRepertoire/otherReps_alltrees/newTrees', full.names = TRUE)
+  list.files(path = '/media/josefng//My_Passport/CovidRepertoire/CovidHB_alltrees/all_trees', full.names = TRUE),
+  list.files(path = '/media/josefng//My_Passport/CovidRepertoire/otherReps_alltrees/newTrees', full.names = TRUE)
 )
 distFromGermline <- lapply(all_trees, function(ts){
   tree <- ape::read.tree(ts)
@@ -294,11 +295,36 @@ cowplot::plot_grid(g1, g2,
 saveRDS(distFromGermline_AUC, "allreps_distFromGermline_AUC.rds")
 ```
 
-Separate by age:
+Separate by age. Two-way ANOVA (Age & SampleType) and Tukey post-hoc.
+
 ```{r, fig.width=5, fig.height=4}
-ggplot(distFromGermline_AUC, 
+# evaluate statistical significance
+distFromGermline_AUC$AgeSample <- interaction(distFromGermline_AUC$AgeGroup,
+                                              distFromGermline_AUC$SampleType2)
+
+# Tukey's test contrast matrix
+Tukey <- table(distFromGermline_AUC$AgeSample)
+Tukey <- contrMat(Tukey[Tukey > 0], "Tukey")
+# comparison of either sample age group & any sample type vs Healthy, or
+# same sample type & different age groups
+Tukey <- list(
+  Tukey[which(grepl("Healthy", rownames(Tukey)) & 
+                stringr::str_count(rownames(Tukey), "<=50") != 1), ],
+  Tukey[which(sapply(stringr::str_extract_all(rownames(Tukey), "\\.([A-Za-z\\-]*)"), 
+                     function(z) z[1] ==z[2])), ]
+)
+Tukey <- do.call("rbind", Tukey)
+summary(
+  glht(
+    aov(as.formula( paste("AUC ~ AgeSample - 1")), 
+        data = distFromGermline_AUC), linfct = Tukey
+  )
+)
+
+ggplot(distFromGermline_AUC,#[!is.na(distFromGermline_AUC$AgeGroup), ], 
        aes(x = SampleType2, y = AUC, colour = AgeGroup)) + 
     geom_boxplot(outlier.shape = NA) + geom_point(position = position_dodge(width = 0.7)) +
+  scale_colour_manual(values = c("<=50" = "grey30", ">=60" = "grey70"), na.translate = TRUE, na.value = "lightgreen", name ="Age") +
     cowplot::theme_cowplot() + xlab("") + ylab("Germline likeness") +
     theme(axis.text.x = element_text(angle = 45, hjust = 1), 
           plot.margin = margin(10, 2, 2, 2), legend.position = "bottom")
@@ -643,6 +669,15 @@ g1 <- ggplot(distFromGermline_median[which(!is.na(distFromGermline_median$Sample
   theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, hjust = 1))
 
 # calculate AUC
+distFromGermline_count$SampleType2 <- factor(distFromGermline_count$SampleType2,
+                                          levels = c("Healthy", "COVID-19",
+                                                     "COVID-19Recovered",
+                                                     "Ebola", "RSV-I", "RSV-U",
+                                                     "YFVD28"),
+                                          labels = c("Healthy", "CV19",
+                                                     "CV19-Recovered",
+                                                     "EBOV", "RSV-I", "RSV-U",
+                                                     "YFVD28"))
 distFromGermline_AUC <- unique(distFromGermline_count[, c("PatientId", "SampleType2", "AgeGroup")])
 distFromGermline_median <- split(distFromGermline_median, 
                                  f = list(distFromGermline_median$SampleType2,
@@ -652,11 +687,6 @@ distFromGermline_AUC$AUC <- apply(
   distFromGermline_AUC, MARGIN = 1, 
   function(x) getAUC(distFromGermline_median[[paste0(x[2], ".", x[1])]])
 )
-distFromGermline_AUC$SampleType2 <- factor(distFromGermline_AUC$SampleType2,
-                                          levels = c("Healthy", "CV19",
-                                                     "CV19-Recovered",
-                                                     "EBOV", "RSV-I", "RSV-U",
-                                                     "YFVD28"))
 distFromGermline_AUC <- distFromGermline_AUC[which(!is.na(distFromGermline_AUC$SampleType2)), ]
 distFromGermline_AUC <- merge(
   distFromGermline_AUC,

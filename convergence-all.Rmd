@@ -23,7 +23,7 @@ library(plyr) # summarising (pivot-table-style) tables
 ```
 
 ```{r loaddata, include=FALSE}
-test_data <- read.csv('/media/josephn/My_Passport/CovidRepertoire/UseRefTrueHeavyAllCV+AllHC+AllRSV+AllEB_wo10XYFv7Mutation+Clone+AgeGroups+CorrectedSample+CombinedHC+CellType.csv',
+test_data <- read.csv('/media/josefng/My_Passport/CovidRepertoire/UseRefTrueHeavyAllCV+AllHC+AllRSV+AllEB_wo10XYFv7Mutation+Clone+AgeGroups+CorrectedSample+CombinedHC+CellType.csv',
                       stringsAsFactors = FALSE)
 test_data <- test_data[grepl("IGH", test_data$Vfamily), ] 
 ```
