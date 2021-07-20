@@ -1,7 +1,7 @@
 # BrepPhyloAnalysis
 Analysis done for the BrepPhylo paper on COVID, Ebola and RSV repertoires
 
-Joseph Ng ([@josef0731](https://github.com/josef0731)), June 2021
+Joseph Ng ([@josef0731](https://github.com/josef0731)), July 2021
 
 This repository contain R markdown notebooks for analysis performed for this work. Both the R markdown files and the HTML notebooks are available.
 
@@ -17,6 +17,8 @@ This repository contain R markdown notebooks for analysis performed for this wor
 * `CSR`: Analysis of frequency and distance-from-germline of Class-Switch Recombination events detected from lineage trees. ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/CSR.html))
 * `GeneUsage`: Analysis of V, D, J gene usage. Separation by age groups. ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/GeneUsage.html))
 * `MutationalLevels`: Analysis of mutational levels in lineage trees. ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/MutationalLevels.html))
+
+**Note:** These rendered HTML notebooks depend on an online renderer to display the notebooks. As such, the network visualisation for the convergent network clusters (in the `convergence-*` noteboks) does not work. Please download the HTML files and open them locally in an browser to properly visualise these networks.
 
 ### Folders
 
