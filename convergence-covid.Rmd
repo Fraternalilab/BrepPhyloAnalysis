@@ -23,7 +23,7 @@ library(plyr) # summarising (pivot-table-style) tables
 ```
 
 ```{r loaddata, include=FALSE}
-test_data <- read.csv('/media/josephn/My_Passport/CovidRepertoire/UseRefTrueHeavyAllCV+AllHC+AllRSV+AllEB_wo10XYFv7Mutation+Clone+AgeGroups+CorrectedSample+CombinedHC+CellType.csv',
+test_data <- read.csv('/media/josefng/My_Passport/CovidRepertoire/UseRefTrueHeavyAllCV+AllHC+AllRSV+AllEB_wo10XYFv7Mutation+Clone+AgeGroups+CorrectedSample+CombinedHC+CellType.csv',
                       stringsAsFactors = FALSE)
 test_data <- test_data[grepl("IGH", test_data$Vfamily), ] 
 ```
@@ -166,6 +166,114 @@ Added to this set of sequences known binders of SARS-CoV-2 proteins from the fol
 6. [@Zost2020, Supplementary Table 4] - workflow to isolate mAbs specific against Spike, Spike/RBD and Spike/NTD, and those cross-reactive (ie reactive to both SARS-CoV and SARS-CoV-2 S protein) ([link to article](https://doi.org/10.1038/s41591-020-0998-x))
 
 If V & J germline gene assignment are missing from data source they are annotated using either IMGT/High-VQuest (if nucleotide sequences are available) or IMGT/DomainGapAlign (if only amino acid sequences are available). **Total: 822 unique CDRH3 sequences from PDB and publications**.
+
+### Gene usage in known binders
+
+```{r, fig.width=7, fig.height=5}
+cloned_v <- ddply(cloned_ab, c("Specificity", "Vgene"), nrow)
+cloned_j <- ddply(cloned_ab, c("Specificity", "Jfamily"), nrow)
+cloned_vj <- ddply(cloned_ab, c("Specificity", "Vgene", "Jfamily"), nrow)
+cloned_vj$VJ <- paste(cloned_vj$Vgene, cloned_vj$Jfamily, sep = ".")
+cloned_vj$VJ <- gsub("IGH", "", cloned_vj$VJ)
+
+#_______________________
+# fisher exact test
+#_______________________
+# Vgene
+cloned_v <- do.call("rbind", lapply(unique(cloned_v$Specificity), function(x){
+  do.call("rbind", lapply(unique(cloned_v$Vgene), function(y){
+    both <- which(cloned_v$Vgene == y & cloned_v$Specificity == x)
+    if(length(both) == 0) return(data.frame())
+    data.frame(Specificity = x, Vgene = y,
+               both = cloned_v[both, "V1"],
+               Spec_other = sum(cloned_v[cloned_v$Vgene == y &
+                                            cloned_v$Specificity != x, "V1"]),
+               V_other = sum(cloned_v[cloned_v$Vgene != y &
+                                         cloned_v$Specificity == x, "V1"]),
+               neither = sum(cloned_v[cloned_v$Vgene != y &
+                                         cloned_v$Specificity != x, "V1"])
+               )
+  }))
+}))
+cloned_v <- ddply(cloned_v, c("Specificity", "Vgene"), summarise,
+                  logOR = log2(fisher.test(matrix(c(both, Spec_other,
+                                                    V_other, neither),
+                                                  byrow = TRUE, nrow = 2))$estimate),
+                  pvalue = fisher.test(matrix(c(both, Spec_other,
+                                                V_other, neither),
+                                              byrow = TRUE, nrow = 2))$p.value)
+
+# Jfamily
+cloned_j <- do.call("rbind", lapply(unique(cloned_j$Specificity), function(x){
+  do.call("rbind", lapply(unique(cloned_j$Jfamily), function(y){
+    both <- which(cloned_j$Jfamily == y & cloned_j$Specificity == x)
+    if(length(both) == 0) return(data.frame())
+    data.frame(Specificity = x, Jfamily = y,
+               both = cloned_j[both, "V1"],
+               Spec_other = sum(cloned_j[cloned_j$Jfamily == y &
+                                            cloned_j$Specificity != x, "V1"]),
+               J_other = sum(cloned_j[cloned_j$Jfamily != y &
+                                         cloned_j$Specificity == x, "V1"]),
+               neither = sum(cloned_j[cloned_j$Jfamily != y &
+                                         cloned_j$Specificity != x, "V1"])
+               )
+  }))
+}))
+cloned_j <- ddply(cloned_j, c("Specificity", "Jfamily"), summarise,
+                  logOR = log2(fisher.test(matrix(c(both, Spec_other,
+                                                    J_other, neither),
+                                                  byrow = TRUE, nrow = 2))$estimate),
+                  pvalue = fisher.test(matrix(c(both, Spec_other,
+                                                J_other, neither),
+                                              byrow = TRUE, nrow = 2))$p.value)
+
+# V-J
+cloned_vj <- do.call("rbind", lapply(unique(cloned_vj$Specificity), function(x){
+  do.call("rbind", lapply(unique(cloned_vj$VJ), function(y){
+    both <- which(cloned_vj$VJ == y & cloned_vj$Specificity == x)
+    if(length(both) == 0) return(data.frame())
+    data.frame(Specificity = x, VJ = y,
+               both = cloned_vj[both, "V1"],
+               Spec_other = sum(cloned_vj[cloned_vj$VJ == y &
+                                            cloned_vj$Specificity != x, "V1"]),
+               VJ_other = sum(cloned_vj[cloned_vj$VJ != y &
+                                         cloned_vj$Specificity == x, "V1"]),
+               neither = sum(cloned_vj[cloned_vj$VJ != y &
+                                         cloned_vj$Specificity != x, "V1"])
+               )
+  }))
+}))
+cloned_vj <- ddply(cloned_vj, c("Specificity", "VJ"), summarise,
+                  logOR = log2(fisher.test(matrix(c(both, Spec_other,
+                                                    VJ_other, neither),
+                                                  byrow = TRUE, nrow = 2))$estimate),
+                  pvalue = fisher.test(matrix(c(both, Spec_other,
+                                                VJ_other, neither),
+                                              byrow = TRUE, nrow = 2))$p.value)
+save("cloned_v", "cloned_j", "cloned_vj", file = "cloned_VJ_usage_test.RData")
+
+# plot volcano plot
+cloned_vj_plot <- cloned_vj
+cloned_vj_plot[which(is.infinite(cloned_vj_plot$logOR)), "logOR"] <- 6
+cloned_vj_plot$VJ <- factor(cloned_vj_plot$VJ,
+                            levels = sort(levels(cloned_vj_plot$VJ)))
+ggplot(cloned_vj_plot, aes(x = logOR, y = -log10(pvalue))) + geom_point() +
+  cowplot::theme_cowplot() + facet_wrap(~ Specificity) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+  scale_x_continuous(breaks = c(-2, 0, 2, 4)) +
+  ggrepel::geom_text_repel(aes(label = VJ),
+                           data = cloned_vj_plot[which(cloned_vj_plot$pvalue < 0.05 &
+                                                        cloned_vj_plot$logOR > 0), ])
+```
+
+```{r fig.width=3.5, fig.height=7.5}
+ggplot(cloned_vj_plot[which(cloned_vj_plot$pvalue < 0.05 &
+                                cloned_vj_plot$logOR > 0), ],
+       aes(x = Specificity, y = VJ, fill = logOR)) +
+  geom_point(size = 5, pch = 21, colour = "grey") + cowplot::theme_cowplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_gradient(low = "white", high = "navy", limits = c(0, 6)) + ylab("")
+```
 
 Evaluate CDRH3 AA identity, and construct a network connecting sequences (from data / known binders). Edges are drawn between pairs of sequences using identical rules as in connecting the convergent repertoire sequences.
 
