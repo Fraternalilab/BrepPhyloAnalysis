@@ -1,7 +1,7 @@
 ---
 title: "Class-switching analysis of Repertoires"
 author: "Joseph Ng"
-date: "8 April 2021"
+date: "6 February 2022"
 output: html_document
 ---
 
@@ -188,7 +188,9 @@ nEvent_test <- lapply(unique(tree_bySampleType$CloneGroup), function(x){
       } else return(data.frame())
     } else return(data.frame())
   })
-  do.call("rbind", o)
+  o <- do.call("rbind", o)
+  o$pval <- p.adjust(o$pval, method = "BH")
+  o
 })
 nEvent_test <- do.call("rbind", nEvent_test)
 rownames(nEvent_test) <- NULL
@@ -205,7 +207,7 @@ ggplot(tree_bySampleType[!tree_bySampleType$CloneGroup %in% c("Unique", "2"), ],
   geom_point(position = position_jitter(width = 0.2)) + 
   scale_y_continuous(labels = scales::percent, limits = c(0, 0.2), 
                      name = "% clones with CSR events") +
-  scale_colour_manual(values = c("FALSE" = "grey", "TRUE" = "red"), name = "p < 0.05") +
+  scale_colour_manual(values = c("FALSE" = "grey", "TRUE" = "red"), name = "FDR < 0.05") +
   cowplot::theme_cowplot() + xlab("") + theme(legend.position = "bottom") +
   facet_wrap(~ CloneGroup, ncol = 1, strip.position = "right")
 ```
@@ -256,7 +258,9 @@ nEvent_test <- lapply(unique(tree_bySampleType$CloneGroup), function(x){
       } else return(data.frame())
     } else return(data.frame())
   })
-  do.call("rbind", o)
+  o <- do.call("rbind", o)
+  o$pval <- p.adjust(o$pval, method = "BH")
+  o
 })
 nEvent_test <- do.call("rbind", nEvent_test)
 nEvent_test
@@ -405,7 +409,9 @@ timing_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2),
       } else return(data.frame())
     } else return(data.frame())
   })
-  do.call("rbind", o)
+  o <- do.call("rbind", o)
+  o$pval <- p.adjust(o$pval, method = "BH")
+  o
 })
 timing_test <- do.call("rbind", timing_test)
 rownames(timing_test) <- NULL
@@ -433,7 +439,7 @@ ggplot(tree_byPatient[which(tree_byPatient$CSR %in% timing_test$CSR),],
   geom_boxplot() + geom_point() + cowplot::theme_cowplot() +
   facet_grid(~ CSR) + xlab("") + ylab("mean distance from germline") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)) +
-  scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), name = "p < 0.05")
+  scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), name = "FDR < 0.05")
 ```
 
 Split by age group. Model Y = AgeGroup * SampleType and Tukey's post-hoc test.
@@ -523,7 +529,9 @@ timing_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2),
       } else return(data.frame())
     } else return(data.frame())
   })
-  do.call("rbind", o)
+  o <- do.call("rbind", o)
+  o$pval <- p.adjust(o$pval, method = "BH")
+  o
 })
 timing_test <- do.call("rbind", timing_test)
 rownames(timing_test) <- NULL
@@ -531,40 +539,11 @@ rownames(timing_test) <- NULL
 timing_test[timing_test$pval < 0.05, ]
 ```
 
-```{r, fig.width=9, fig.height=8}
-# plot
-tree_byPatient$CSR <- apply(tree_byPatient[, c("startIsotype", "endIsotype")],
-                            MARGIN = 1, function(x) paste(x[1], x[2], sep = " to "))
-timing_test$CSR <- apply(timing_test[, c("startIsotype", "endIsotype")],
-                         MARGIN = 1, function(x) paste(x[1], x[2], sep = " to "))
-
-# plot those with significant differences in at least 1 sample type
-cowplot::plot_grid(
-  ggplot(tree_byPatient[which(tree_byPatient$CSR %in% timing_test[timing_test$pval < 0.05, "CSR"] & 
-                              !is.na(tree_byPatient$AgeGroup) &
-                              tree_byPatient$SampleType2 %in% c("Healthy", "CV19", "EBOV (White)", "EBOV (West African)")),],
-       aes(x = SampleType2, y = meanDist_from_germline, colour = AgeGroup)) +
-  geom_boxplot() + geom_point(position = position_jitterdodge(jitter.width = 0.2)) + cowplot::theme_cowplot() +
-  scale_colour_manual(values = c("<=50" = "grey30", ">=60" = "grey70", "NA" = "lightgreen"), name = "Age") +
-  facet_grid(~ CSR) + xlab("") + ylab("mean distance from germline") + ylim(0, 0.28) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)),
-  ggplot(tree_byPatient[which(tree_byPatient$CSR %in% timing_test[timing_test$pval < 0.05, "CSR"] & 
-                              !is.na(tree_byPatient$AgeGroup) &
-                              tree_byPatient$SampleType2 %in% c("Healthy", "RSV-I", "RSV-U")),],
-       aes(x = SampleType2, y = meanDist_from_germline, colour = AgeGroup)) +
-  geom_boxplot() + geom_point(position = position_jitterdodge(jitter.width = 0.2)) + cowplot::theme_cowplot() +
-  scale_colour_manual(values = c("<=50" = "grey30", ">=60" = "grey70"), name = "Age") +
-  facet_grid(~ CSR) + xlab("") + ylab("mean distance from germline") + ylim(0, 0.28) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)),
-  ncol = 1
-)
-
-```
-
+No significant differences in this analysis.
 
 ## Statistical test: CSR event count
 
-only shown those with p < 0.05:
+only shown those with FDR < 0.05:
 
 ```{r}
 nEvent_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2), 
@@ -601,7 +580,9 @@ nEvent_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2),
       } else return(data.frame())
     } else return(data.frame())
   })
-  do.call("rbind", o)
+  o <- do.call("rbind", o)
+  o$pval <- p.adjust(o$pval, method = "BH")
+  o
 })
 nEvent_test <- do.call("rbind", nEvent_test)
 rownames(nEvent_test) <- NULL
@@ -630,7 +611,7 @@ ggplot(tree_byPatient[which(tree_byPatient$CSR %in% nEvent_test$CSR),],
   facet_wrap( ~ CSR, ncol = 4, scales = "free_x") + xlab("") + #ylab("% clones with CSR events") +
   scale_y_continuous(labels = scales::percent, name="% clones with CSR events") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)) +
-  scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), name = "p < 0.05")
+  scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), name = "FDR < 0.05")
 ```
 
 Split by age group. Model Y = AgeGroup * SampleType and Tukey's post-hoc test.
@@ -683,7 +664,9 @@ nEvent_test <- apply(combn(c("M", "G3", "G1", "A1", "G2", "G4", "E", "A2"), 2),
       } else return(data.frame())
     } else return(data.frame())
   })
-  do.call("rbind", o)
+  o <- do.call("rbind", o)
+  o$pval <- p.adjust(o$pval, method = "BH")
+  o
 })
 nEvent_test <- do.call("rbind", nEvent_test)
 rownames(nEvent_test) <- NULL

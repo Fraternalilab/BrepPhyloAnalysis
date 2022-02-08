@@ -1,7 +1,7 @@
 ---
 title: "Clonal diversity"
 author: "Joseph Ng"
-date: "8 April 2021"
+date: "3 February 2022"
 output: html_document
 ---
 
@@ -16,7 +16,7 @@ library(ggplot2)
 Analysis of clonal diversity (that is, how clone sizes are distributed for a given repertoire) in BCR repertoires collected from individuals with different immunological states.
 
 ```{r loaddata, include=FALSE, warning=FALSE}
-test_data <- read.table('/media/josephn/My_Passport/CovidRepertoire/AllCV+AllHC+AllRSV+AllEB_wo10XYF.txt', header = TRUE, sep = "\t",
+test_data <- read.table('/media/josefng/My_Passport/CovidRepertoire/AllCV+AllHC+AllRSV+AllEB_wo10XYF.txt', header = TRUE, sep = "\t",
                       stringsAsFactors = FALSE)
 test_data <- test_data[ which(grepl("^IGH", test_data$Vfamily)), ]
 
@@ -92,7 +92,7 @@ This influences the choice of diversity metrics to quantify clone distributions 
 
 N.B. in ecology, (species) *richness* refers to the number of species in the habitat, *evenness* refers to the distribution of the relative abundance of species observed. [This paper](https://pubmed.ncbi.nlm.nih.gov/26140055) by Victor Greiff & Sai Reddy explains and develops this idea very nicely.
 
-A measure of (un)evenness known as "Gini coefficient" has been used recently to quantify clonal diversity (see [this](https://pubmed.ncbi.nlm.nih.gov/31554970) by Rachael Bashford-Rogers and [this](https://pubmed.ncbi.nlm.nih.gov/33879890) analysis of BCR repertoire in COVID ). See below (section "Diversity indices") for quantification.
+A measure of (un)evenness known as "Gini coefficient" has been used recently to quantify clonal diversity (see [this](https://pubmed.ncbi.nlm.nih.gov/31554970) paper and [this](https://pubmed.ncbi.nlm.nih.gov/33879890) analysis of BCR repertoire in COVID ). See below (section "Diversity indices") for quantification.
 
 # Visualise clone distribution
 
@@ -152,6 +152,7 @@ saveRDS(clones, "all_clones_count.rds")
 clones <- readRDS('all_clones_count.rds')
 clones_large <- clones[which(clones$large),]
 # random initialisation in 2D axes
+set.seed(123)
 clones_large$x <- runif(nrow(clones_large))
 clones_large$y <- runif(nrow(clones_large))
 # clones$logNumInClone <- log10(clones$NumInClone)
@@ -230,8 +231,8 @@ clones_sampled <- test_data[which(test_data$UseAsRef &
                             c(which(colnames(test_data) %in% c("PatientID", "CloneID",
                                                                "Vfamily", "Vgene", "Jfamily")))]
 sampled_data <- split(test_data, f = list(test_data$SampleType2, test_data$PatientID), drop = TRUE)
-set.seed(66)
 sampled_data <- lapply(sampled_data, function(tb){
+  set.seed(66)
   if(nrow(tb) < 12000){ # 12,000 is the median sequencing depth across samples
     tb[sample(1:nrow(tb), size = 12000, replace = TRUE), ]
   } else{
@@ -302,6 +303,7 @@ clones_sampled <- merge(clones_sampled, top_bound, by.x = c("SampleType2", "Pati
                         by.y = c("SampleType2", "PatientID", "variable", "clones"), all.x = TRUE, sort = FALSE)
 clones_sampled <- clones_sampled[which(clones_sampled$large),]
 # random initialisation in 2D axes
+set.seed(123)
 clones_sampled$x <- runif(nrow(clones_sampled))
 clones_sampled$y <- runif(nrow(clones_sampled))
 clones_sampled$variable <- factor(clones_sampled$variable,
@@ -321,6 +323,12 @@ plotPatchWork(clones_sampled,
               VgeneHighlight = c("IGHV1-69", "IGHV3-23", "IGHV3-30", "IGHV4-34", "IGHV4-39", "IGHV5-51")) + 
   facet_grid(variable ~ SampleType2) + ggtitle(" sampled - highlight V genes") + 
   theme(panel.border = element_rect(fill = NA))
+```
+
+```{r}
+# save the sampled sequences for other analyses
+saveRDS(sampled_data, 'sampled_sequences.rds')
+
 ```
 
 # Diversity indices
@@ -396,6 +404,7 @@ doGiniTest <- function(gini_tb, sample_type_col = "SampleType2",
     gini_tb <- merge(gini_tb, gini_test, by.x = c(split_variable_col, sample_type_col, category_col), 
                      by.y = c("split_variable", sample_type_col, category_col), all.x = TRUE, sort = FALSE)
   }
+  gini_tb$pval <- p.adjust(gini_tb$pval, method = "BH")
   gini_tb$sig <- (gini_tb$pval < 0.05)
   gini_tb$sig[which(is.na(gini_tb$sig))] <- FALSE
   gini_tb  
@@ -413,7 +422,7 @@ healthy_lvl <- ddply(gini[which(gini$SampleType2 == "Healthy"), ], c("variable")
 ggplot(gini, aes(x = SampleType2, y = gini_index, colour = sig)) + geom_boxplot() + geom_point() + 
   xlab("") + ylab("1 - Gini coefficient") + 
   geom_hline(data = healthy_lvl, aes(yintercept = median_gini), linetype = "dashed", colour = "grey") +
-  scale_colour_manual(name = "p < 0.05", values = c("TRUE" = "red", "FALSE" = "grey")) +
+  scale_colour_manual(name = "FDR < 0.05", values = c("TRUE" = "red", "FALSE" = "grey")) +
   facet_wrap(~ variable) + cowplot::theme_cowplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
@@ -460,7 +469,7 @@ gini_age$variable <- factor(gini_age$variable,
 ggplot(gini_age, aes(x = SampleType2, y = gini_index, colour = sig)) + geom_boxplot() + geom_point() + 
   xlab("") + ylab("1 - Gini coefficient") + 
   # geom_hline(data = healthy_lvl, aes(yintercept = median_gini), linetype = "dashed", colour = "grey") +
-  scale_colour_manual(name = "p < 0.05", values = c("TRUE" = "red", "FALSE" = "grey")) +
+  scale_colour_manual(name = "FDR < 0.05", values = c("TRUE" = "red", "FALSE" = "grey")) +
   facet_grid(AgeGroup ~ variable) + cowplot::theme_cowplot() + 
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
@@ -577,7 +586,7 @@ gini_split <- merge(gini_split, gini_split[which(gini_split$SampleType2 == "Heal
 gini_split$mean_gini <- gini_split$mean_gini.x - gini_split$mean_gini.y
 
 # only include genes which were considered in the gene usage analysis
-gene_usage_test <- "GraphPad results for Joseph/Bulk_test.csv"
+gene_usage_test <- "../GraphPad_results/Bulk_test.csv"
 gene_usage_test <- read.csv(gene_usage_test, stringsAsFactors = FALSE)
 gene_usage_test$SampleType <- factor(gene_usage_test$SampleType,
                                      levels = c("COVID-19", "COVID-19 Recovered", "Ebola", 
@@ -606,7 +615,7 @@ ggplot(gini_split[which(gini_split$category == "V" & gini_split$SampleType2 != "
                          breaks = c(-0.4, -0.2, 0.2, 0.4),
                          name = "mean diversity\n(difference\nfrom Healthy)") +
     scale_size_manual(values = c("TRUE" = 7, "FALSE" = 2),
-                      breaks = c("TRUE", "FALSE"), name = "p < 0.05") +
+                      breaks = c("TRUE", "FALSE"), name = "FDR < 0.05") +
     xlab("") + ylab("") + facet_wrap(~ variable, nrow = 1) +
     cowplot::theme_cowplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom")
 
@@ -621,13 +630,13 @@ ggplot(gini_split[which(gini_split$category == "D" & gini_split$SampleType2 != "
                          breaks = c(-0.4, -0.2, 0.2, 0.4),
                          name = "mean diversity\n(difference\nfrom Healthy)") +
     scale_size_manual(values = c("TRUE" = 7, "FALSE" = 2),
-                      breaks = c("TRUE", "FALSE"), name = "p < 0.05") +
+                      breaks = c("TRUE", "FALSE"), name = "FDR < 0.05") +
     xlab("") + ylab("") + facet_wrap(~ variable, nrow = 1) +
     cowplot::theme_cowplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom")
 ```
 
 ```{r fig.height=4.5, fig.width=13}
-# plot D genes
+# plot J genes
 ggplot(gini_split[which(gini_split$category == "J" & gini_split$SampleType2 != "Healthy"), ], 
        aes(x = SampleType2, y = split_variable, fill = mean_gini, size = sig)) +
     geom_point(pch = 21) +
@@ -635,7 +644,7 @@ ggplot(gini_split[which(gini_split$category == "J" & gini_split$SampleType2 != "
                          breaks = c(-0.4, -0.2, 0.2, 0.4),
                          name = "mean diversity\n(difference\nfrom Healthy)") +
     scale_size_manual(values = c("TRUE" = 7, "FALSE" = 2),
-                      breaks = c("TRUE", "FALSE"), name = "p < 0.05") +
+                      breaks = c("TRUE", "FALSE"), name = "FDR < 0.05") +
     xlab("") + ylab("") + facet_wrap(~ variable, nrow = 1) +
     cowplot::theme_cowplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom")
 ```
@@ -760,7 +769,7 @@ gini_age <- merge(gini_age, gini_age[which(gini_age$SampleType2 == "Healthy"),
 gini_age$mean_gini <- gini_age$mean_gini.x - gini_age$mean_gini.y
 
 # only include genes which were considered in the gene usage analysis (5 times rule etc)
-gene_usage_test <- "GraphPad results for Joseph/Bulk_test.csv"
+gene_usage_test <- "../GraphPad_results/Bulk_test.csv"
 gene_usage_test <- read.csv(gene_usage_test, stringsAsFactors = FALSE)
 gene_usage_test$SampleType <- factor(gene_usage_test$SampleType,
                                      levels = c("COVID-19", "COVID-19 Recovered", "Ebola", 
@@ -790,7 +799,7 @@ ggplot(gini_age[which(gini_age$category == "V" & gini_age$SampleType2 != "Health
                          breaks = c(-0.4, -0.2, 0.2, 0.4),
                          name = "mean diversity\n(difference\nfrom Healthy)") +
     scale_size_manual(values = c("TRUE" = 7, "FALSE" = 2),
-                      breaks = c("TRUE", "FALSE"), name = "p < 0.05") +
+                      breaks = c("TRUE", "FALSE"), name = "FDR < 0.05") +
     xlab("") + ylab("") + facet_wrap(~ variable, nrow = 1) +
     cowplot::theme_cowplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom")
 
@@ -806,13 +815,13 @@ ggplot(gini_age[which(gini_age$category == "D" & gini_age$SampleType2 != "Health
                          breaks = c(-0.4, -0.2, 0.2, 0.4),
                          name = "mean diversity\n(difference\nfrom Healthy)") +
     scale_size_manual(values = c("TRUE" = 7, "FALSE" = 2),
-                      breaks = c("TRUE", "FALSE"), name = "p < 0.05") +
+                      breaks = c("TRUE", "FALSE"), name = "FDR < 0.05") +
     xlab("") + ylab("") + facet_wrap(~ variable, nrow = 1) +
     cowplot::theme_cowplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom")
 ```
 
 ```{r fig.height=3.5, fig.width=9}
-# plot D genes
+# plot J genes
 ggplot(gini_age[which(gini_age$category == "J" & gini_age$SampleType2 != "Healthy"), ], 
        aes(x = AgeGroup, y = split_variable, fill = mean_gini, size = sig)) +
     geom_point(pch = 21) + scale_x_discrete(name = "Age", labels= c(expression(""<=50), expression("">=60))) +
@@ -820,7 +829,7 @@ ggplot(gini_age[which(gini_age$category == "J" & gini_age$SampleType2 != "Health
                          breaks = c(-0.4, -0.2, 0.2, 0.4),
                          name = "mean diversity\n(difference\nfrom Healthy)") +
     scale_size_manual(values = c("TRUE" = 7, "FALSE" = 2),
-                      breaks = c("TRUE", "FALSE"), name = "p < 0.05") +
+                      breaks = c("TRUE", "FALSE"), name = "FDR < 0.05") +
     xlab("") + ylab("") + facet_wrap(~ variable, nrow = 1) +
     cowplot::theme_cowplot() + theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom")
 ```

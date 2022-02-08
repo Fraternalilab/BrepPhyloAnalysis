@@ -1,0 +1,722 @@
+---
+title: "Sub-sampling analyses"
+author: "Joseph Ng"
+date: "4 February 2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.path = "Subsampling_plots/",
+                      dev = "svg")
+library(plyr)
+library(ggplot2)
+
+```
+
+```{r loaddata, include=FALSE, warning=FALSE}
+test_data <- read.table('/media/josefng/My_Passport/CovidRepertoire/AllCV+AllHC+AllRSV+AllEB_wo10XYF.txt', header = TRUE, sep = "\t",
+                      stringsAsFactors = FALSE)
+test_data <- test_data[ which(grepl("^IGH", test_data$Vfamily)), ]
+
+# set up age group
+test_data$AgeGroup <- test_data$Age
+test_data$AgeGroup[ which(as.numeric(test_data$Age) < 40 )] <-  "Young"
+test_data$AgeGroup[ which(as.numeric(test_data$Age) > 40 )] <-  "Middle"
+test_data$AgeGroup[ which(as.numeric(test_data$Age) > 65 )] <-  "Old"
+test_data$AgeGroup[ which(test_data$Age == "nd")] <- "?"
+test_data$AgeGroup[ which(test_data$Age == "Young")] <- "Young"
+colnames(test_data)[ncol(test_data)] <- "AgeGroup"
+
+# group RSV Day 0 as Healthy in a new SampleType definition
+test_data$SampleType2 <- test_data$SampleType
+test_data$SampleType2[which(test_data$SampleType %in% c("Infected", "Uninfected", "YF") & test_data$TimePoint == "0")] <- "Healthy"
+test_data$SampleType2[which(test_data$SampleType %in% c("COVID") & test_data$TimePoint == "FU")] <- "COVID-19Recovered"
+test_data$SampleType2[which(test_data$SampleType %in% c("COVID") & test_data$TimePoint != "FU")] <- "COVID-19"
+test_data$SampleType2[which(test_data$SampleType %in% c("Infected") & test_data$TimePoint == "10")] <- "RSV-I"
+test_data$SampleType2[which(test_data$SampleType %in% c("Uninfected") & test_data$TimePoint == "10")] <- "RSV-U"
+test_data$SampleType2[which(test_data$SampleType %in% c("EB"))] <- "Ebola"
+test_data$SampleType2[which(test_data$SampleType %in% c("YF") & test_data$TimePoint == "28")] <- "YFVD28"
+
+# MutationalStatus
+test_data$MutationalStatus <- sapply(test_data$V.REGION.identity.., function(x){
+  if(as.numeric(x) < 99) return("Mutated") else if (as.numeric(x) >= 99) return("Unmutated")
+  else return(NA)
+})
+
+# CellType
+test_data$CellType <- test_data$Subclass
+test_data$CellType[which(test_data$Subclass == "IgM" & test_data$MutationalStatus == "Unmutated" & test_data$NumInClone < 3)] <- "Naive"
+test_data$CellType[which(test_data$Subclass == "IgM" & test_data$MutationalStatus %in% c("Unmutated", "Mutated") & test_data$NumInClone >= 3)] <- "IgM memory"
+
+# CloneGroup
+test_data$CloneGroup <- sapply(test_data$NumInClone, function(x){
+  if(is.na(x)) return(NA)
+  if(x == 1) return("Unique")
+  else if(x == 2) return("2")
+  else if(x == 3) return("3")
+  else if(x %in% c(4, 5)) return("4&5")
+  else if(x %in% 6:9) return("6 to 9")
+  return(">10")
+})
+
+```
+
+# Considerations
+
+The number of clones discovered in a given repertoire is directly proportional to sequencing depth (the number of sequences sampled):
+
+```{r, fig.width=5, fig.height=3}
+# number of clones versus number of sequences
+seq_counts <- ddply(test_data, c("SampleType2", "PatientID"), summarise,
+              n_sequences = length(Seq_ID), 
+              n_clone = length(unique(CloneID)))
+seq_counts <- seq_counts[which(seq_counts$SampleType2 != "Infected"), ]
+seq_counts$SampleType2 <- factor(seq_counts$SampleType2,
+                                 levels = c("Healthy", "COVID-19", "COVID-19Recovered", "Ebola",
+                                            "RSV-I", "RSV-U", "YFVD28"),
+                                 labels = c("Healthy", "CV19", "CV19-Recovered", "EBOV", "RSV-I",
+                                            "RSV-U", "YFVD28"))
+ggplot(seq_counts, aes(x = n_sequences, y = n_clone)) +
+  geom_smooth(method = "lm") + geom_point(aes(colour = SampleType2), size = 2) +
+  scale_color_brewer(name = "Sample Type", type = "qual") +
+  cowplot::theme_cowplot() + scale_y_log10(name = "Number of clones") +
+  scale_x_log10(name = "Number of sequences")
+```
+
+Here we try to see whether the number of sequences (hence, the number of clonal groups) bias the different statistics we considered in the analysis we conducted, specifically:
+
+* Clone size distribution (measured by the Gini coefficient)
+* Gene usage (% repertoire using a certain V/D/J/C gene)
+* % of clones with class-switching
+* distance-from-germline of class-switching events
+* "Germline likeness" (i.e. distance-from-germline distribution of lineages)
+
+Consider here n = `r sum(seq_counts[seq_counts$SampleType2 == "Healthy", "n_sequences"] > 10000)` Healthy donors (with at least 10,000 sequences) and n = `r sum(seq_counts[seq_counts$SampleType2 == "CV19", "n_sequences"] > 10000)` CV19 patients (with at least 10,000 sequences). Sub-sample sequences and re-calculate the above metrics and compare against the ground truth.
+
+```{r}
+samples <- seq_counts[seq_counts$SampleType2 %in% c("CV19", "Healthy"), ]
+samples <- samples[(samples$SampleType2 == "CV19" & samples$n_sequences > 10000) |
+                     (samples$SampleType2 == "Healthy" & samples$n_sequences > 10000), ]
+samples <- samples$PatientID
+test_data <- test_data[which(test_data$SampleType2 %in% c("COVID-19", "Healthy") &
+                               test_data$PatientID %in% samples), ]
+test_data$SampleType2 <- factor(test_data$SampleType2, levels = c("Healthy", "COVID-19"),
+                                labels = c("Healthy", "CV19"))
+test_data <- split(test_data, f = test_data$PatientID)
+
+```
+
+```{r}
+sampled_sequences <- lapply(c(500, 1000, 2500, 5000, 7500, 10000, "all"), function(x){
+  if(x == "all") return(do.call("rbind", test_data))
+  o <- lapply(test_data, function(tb){
+    if(nrow(tb) > as.numeric(x)){
+      set.seed(234)
+      tb[sample(1:nrow(tb), size = as.numeric(x), replace = FALSE), ]
+    } else return(NULL)
+  })
+  o <- o[sapply(o, function(y) !is.null(y))]
+  do.call("rbind", o)
+})
+saveRDS(sampled_sequences, "subsampling_sequences.rds")
+```
+
+```{r}
+sampled_sequences <- readRDS("subsampling_sequences.rds")
+```
+
+# clone size distribution
+
+Get clones remaining in the sub-sampled sequences and calculate Gini coefficient.
+
+```{r}
+gini <- lapply(sampled_sequences, function(tb){
+  # clone size by isotype
+  clones <- ddply(tb[which(tb$V.DOMAIN.Functionality != "No rearrangement found"), ],
+                  c("SampleType2", "PatientID", "CloneID"), summarise,
+                  NumInClone = length(Seq_ID),
+                  IgM_memory = sum(CellType == "IgM memory", na.rm = TRUE),
+                  IgM_naive = sum(CellType == "Naive", na.rm = TRUE),
+                  IgG1 = sum(Subclass == "IgG1", na.rm = TRUE),
+                  IgG2 = sum(Subclass == "IgG2", na.rm = TRUE),
+                  IgG3 = sum(Subclass == "IgG3", na.rm = TRUE),
+                  IgG4 = sum(Subclass == "IgG4", na.rm = TRUE),
+                  IgA1 = sum(Subclass == "IgA1", na.rm = TRUE),
+                  IgA2 = sum(Subclass == "IgA2", na.rm = TRUE))
+  # Normalise clone size into % repertoire
+  repertoire_size <- ddply(clones, c("SampleType2", "PatientID"), summarise,
+                           repsize = sum(NumInClone))
+  clones <- merge(clones, repertoire_size, by = c("SampleType2", "PatientID"),
+                  sort = FALSE)
+  clones <- reshape2::melt(clones,
+                           id.vars = c("SampleType2", "PatientID", "CloneID", "repsize"),
+                           measure.vars = c("NumInClone", "IgM_memory", "IgM_naive",
+                                            "IgG1", "IgG2", "IgG3", "IgG4", 
+                                            "IgA1", "IgA2"))
+  clones$PercInClone <- clones$value / clones$repsize
+  clones <- clones[which(clones$PercInClone > 0), ]
+  ddply(clones, c("SampleType2", "variable", "PatientID"), summarise, 
+        gini_index = ifelse(length(value) < 3, NA, 1 - ineq::ineq(value)))
+})
+names(gini) <- c(500, 1000, 2500, 5000, 7500, 10000, "all")
+gini <- lapply(names(gini), function(x){
+  tb <- gini[[x]]
+  tb$n_sequences <- x
+  tb
+})
+gini <- do.call("rbind", gini)
+gini$n_sequences <- factor(gini$n_sequences,
+                           levels = c(500, 1000, 2500, 5000, 7500, 10000, "all"))
+saveRDS(gini, 'subsampling_gini.rds')
+```
+
+```{r, fig.width=7, fig.height=6}
+gini <- readRDS("subsampling_gini.rds")
+gini <- ddply(gini, c("SampleType2", "variable", "n_sequences"), summarise, 
+              median_gini = median(gini_index, na.rm = TRUE), 
+              lowerq = quantile(gini_index, prob = 0.25, na.rm = TRUE), 
+              upperq = quantile(gini_index, prob = 0.75, na.rm = TRUE))
+gini$variable <- factor(gini$variable,
+                        labels = c("all sequences", "IgM mutated", "IgM unmutated",
+                                   "IgG1", "IgG2", "IgG3", "IgG4", "IgA1", "IgA2"))
+
+ggplot(gini[which(gini$n_sequences != "all"),], 
+       aes(x = n_sequences, y = median_gini, ymin = lowerq, ymax = upperq, 
+           colour = SampleType2, group = SampleType2)) + 
+  ylab("1 - Gini coefficient") + xlab("Number of sequences sub-sampled") +
+  geom_point() + geom_line() + geom_errorbar(width = 0) + 
+  geom_hline(data = gini[which(gini$n_sequences == "all"), ],
+             aes(yintercept = median_gini, color = SampleType2), linetype = "dashed") +
+  scale_color_brewer(type = "qual", name = "") + facet_wrap(~ variable, ncol = 3) + 
+  cowplot::theme_cowplot() + theme(axis.text.x =  element_text(angle = 45, hjust = 1))
+```
+
+# Gene usage
+
+Here just for illustration take the C gene (i.e. isotype) usage and V gene usage as examples.
+
+For isotype, do a similar comparison as above for the Gini coefficient (y-axis becomes % sequences), separately for each IgG/A subclass. For V genes, since there are many individual V genes, quantify the similarity of the V gene usage (% sequences) profile against the un-sampled, complete dataset using cosine similarity.
+
+```{r}
+# This function gets the % of repertoire 
+getPercentagesFromCountTbList <- function(tb_list, category_name = "Vgene")
+{
+  lapply(tb_list, function(tb){
+    variables <- colnames(tb)[-ncol(tb)]
+    variables <- variables[variables != category_name]
+    if(length(variables) == 0){
+      tb$all <- sum(tb$V1)
+      tb$perc <- tb$V1 / tb$all
+      tb <- tb[, c(category_name, "perc")]
+    } else if(length(variables) > 0){
+      sums <- ddply(tb, variables, summarise, all = sum(V1), .drop = FALSE)
+      colnames(sums) <- c(variables, "all")
+      tb <- merge(tb, sums, by = variables, sort = FALSE)
+      tb$perc <- tb$V1 / tb$all
+      tb <- tb[, c(category_name, variables, "perc")]
+    }
+    tb
+  })
+}
+
+```
+
+```{r}
+# collapse sampled sequences into one per clone (i.e. a new 'UseAsRef')
+# by majority voting of the column given by 'feature'
+collapseToRef <- function(tb, feature){
+  clones <- ddply(tb, c("PatientID", "CloneID"), nrow)
+  clones_unique <- clones[which(clones$V1 == 1), ]
+  clones_unique$unique <- TRUE
+  tb <- merge(tb, clones_unique, by = c("PatientID", "CloneID"), 
+              all.x = TRUE, all.y = FALSE, sort = FALSE)
+  clones <- ddply(tb[which(!isTRUE(tb$unique)), ], 
+                  c("PatientID", "CloneID", feature), nrow)
+  clones <- split(clones, f = list(clones$PatientID, clones$CloneID), drop = TRUE)
+  clones <- lapply(clones, function(part){
+    selected_feature <- part[which.max(part$V1), feature]
+    o <- tb[which(tb$PatientID == part[1, "PatientID"] & 
+                    tb$CloneID == part[1, "CloneID"] &
+                    tb[, feature] == selected_feature), ]
+    o[1, ]
+  })
+  clones <- do.call("rbind", clones)
+  o <- rbind(tb, clones)
+  o[, -which(colnames(o) == "unique")]
+}
+
+```
+
+## IgG/A subclasses
+
+```{r}
+cgene <- lapply(sampled_sequences, function(tb){
+  tb <- collapseToRef(tb, "Subclass")
+  isotype_usage <- list( 
+  "IgG" = ddply(tb[which(grepl("IgG[1-4]$", tb$Subclass)),], 
+                c("SampleType2", "PatientID", "Subclass"), nrow, .drop = FALSE) ,
+  "IgA" = ddply(tb[which(grepl("IgA[1-2]$", tb$Subclass)),], 
+                c("SampleType2", "PatientID", "Subclass"), nrow, .drop = FALSE)
+  ) 
+  isotype_usage <- getPercentagesFromCountTbList(isotype_usage, category_name = "Subclass")
+  isotype_usage[[1]] <- isotype_usage[[1]][which(!is.nan(isotype_usage[[1]]$perc)), ]
+  isotype_usage[[2]] <- isotype_usage[[2]][which(!is.nan(isotype_usage[[2]]$perc)), ]
+  isotype_usage[[1]]$isotype <- "IgG"
+  isotype_usage[[2]]$isotype <- "IgA"
+  do.call("rbind", isotype_usage)
+})
+names(cgene) <- c(500, 1000, 2500, 5000, 7500, 10000, "all")
+cgene <- lapply(names(cgene), function(x){
+  tb <- cgene[[x]]
+  tb$n_sequences <- x
+  tb
+})
+cgene <- do.call("rbind", cgene)
+cgene$n_sequences <- factor(cgene$n_sequences,
+                           levels = c(500, 1000, 2500, 5000, 7500, 10000, "all"))
+saveRDS(cgene, 'subsampling_isotype.rds')
+
+```
+
+```{r, fig.width=8, fig.height=3}
+cgene <- readRDS("subsampling_isotype.rds")
+cgene <- ddply(cgene, c("SampleType2", "isotype", "Subclass", "n_sequences"), summarise, 
+              perc = median(perc, na.rm = TRUE), 
+              lowerq = quantile(perc, prob = 0.25, na.rm = TRUE), 
+              upperq = quantile(perc, prob = 0.75, na.rm = TRUE))
+cgene$Subclass <- factor(cgene$Subclass,
+                         levels = c("IgG1", "IgG2", "IgG3", "IgG4", "IgA1", "IgA2"))
+
+# IgG
+ggplot(cgene[which(cgene$isotype == "IgG" & cgene$n_sequences != "all"),], 
+       aes(x = n_sequences, y = perc, ymin = lowerq, ymax = upperq, 
+           colour = SampleType2, group = SampleType2)) + 
+  ylab("% IgG sequences") + xlab("Number of sequences sub-sampled") +
+  geom_point() + geom_line() + geom_errorbar(width = 0) + 
+  geom_hline(data = cgene[which(cgene$isotype == "IgG" & cgene$n_sequences == "all"), ],
+             aes(yintercept = perc, color = SampleType2), linetype = "dashed") +
+  scale_color_brewer(type = "qual", name = "") + facet_wrap(~ Subclass, nrow = 1) + 
+  cowplot::theme_cowplot() + theme(axis.text.x =  element_text(angle = 45, hjust = 1))
+```
+
+```{r, fig.width=5, fig.height=3}
+# IgA
+ggplot(cgene[which(cgene$isotype == "IgA" & cgene$n_sequences != "all"),], 
+       aes(x = n_sequences, y = perc, ymin = lowerq, ymax = upperq, 
+           colour = SampleType2, group = SampleType2)) + 
+  ylab("% IgA sequences") + xlab("Number of sequences sub-sampled") +
+  geom_point() + geom_line() + geom_errorbar(width = 0) + 
+  geom_hline(data = cgene[which(cgene$isotype == "IgA" & cgene$n_sequences == "all"), ],
+             aes(yintercept = perc, color = SampleType2), linetype = "dashed") +
+  scale_color_brewer(type = "qual", name = "") + facet_wrap(~ Subclass, nrow = 1) + 
+  cowplot::theme_cowplot() + theme(axis.text.x =  element_text(angle = 45, hjust = 1))
+
+```
+
+## V-gene
+
+```{r}
+vgene <- lapply(sampled_sequences, function(tb){
+  tb <- collapseToRef(tb, feature = "Vgene")
+  v_usage <- list(
+    "all" = ddply(tb, c("Vgene", "SampleType2", "PatientID"), nrow, .drop = FALSE),
+    "isotype" = ddply(tb[which(grepl("Ig[MDE]|Ig[AG][1-4]", tb$Subclass)), ],
+                      c("Subclass", "Vgene", "SampleType2", "PatientID"), nrow, 
+                      .drop = FALSE),
+    "IgM mutated" = ddply(tb[which(tb$Class == "M" &
+                                      tb$V.REGION.identity.. < 99), ],
+                         c("Vgene", "SampleType2", "PatientID"), nrow, .drop = FALSE)
+  )
+  v_usage <- getPercentagesFromCountTbList( v_usage, category_name = "Vgene" )
+
+  # label the observations
+  v_usage[["all"]]$Subclass <- "all sequences"
+  v_usage[["IgM mutated"]]$Subclass <- "IgM mutated"
+
+  # combine the tables
+  v_usage <- do.call("rbind", lapply(v_usage, function(tb){
+    tb[, c("SampleType2", "Vgene", "Subclass", "PatientID" ,"perc")]
+  }))
+  # Select only the labels you want
+  v_usage <- v_usage[v_usage$Subclass %in% c("all sequences", "IgA1", "IgG1", "IgM mutated"), ]
+  v_usage$SampleType2 <- factor(v_usage$SampleType2, levels = c("Healthy", "CV19"))
+  v_usage[which(!is.nan(v_usage$perc)), ]
+})
+names(vgene) <- c(500, 1000, 2500, 5000, 7500, 10000, "all")
+vgene <- lapply(names(vgene), function(x){
+  tb <- vgene[[x]]
+  tb$n_sequences <- x
+  tb
+})
+vgene <- do.call("rbind", vgene)
+vgene$n_sequences <- factor(vgene$n_sequences,
+                           levels = c(500, 1000, 2500, 5000, 7500, 10000, "all"))
+saveRDS(vgene, 'subsampling_Vgene.rds')
+
+```
+
+```{r}
+vgene <- readRDS("subsampling_Vgene.rds")
+vgene_dist <- lapply(c(500, 1000, 2500, 5000, 7500, 10000), function(x){
+  tb <- vgene[which(vgene$n_sequences == x), ]
+  tb_all <- vgene[which(vgene$n_sequences == "all"), ]
+  tb <- split(tb, f = list(tb$SampleType2, tb$Subclass, tb$PatientID), drop = TRUE)
+  out <- lapply(tb, function(tb_part){
+    part_perc <- tb_part$perc
+    names(part_perc) <- tb_part$Vgene
+    all_part <- tb_all[which(tb_all$SampleType2 == tb_part[1, "SampleType2"] &
+                               tb_all$Subclass == tb_part[1, "Subclass"] &
+                               tb_all$PatientID == tb_part[1, "PatientID"]), ]
+    all_perc <- all_part$perc
+    names(all_perc) <- all_part$Vgene
+    for(i in names(all_perc)[which(!names(all_perc) %in% names(part_perc))]){
+      part_perc[i] <- 0
+    }
+    part_perc <- part_perc[names(all_perc)]
+    o <- philentropy::cosine_dist(all_perc, part_perc, testNA = FALSE)
+    data.frame(SampleType2 = tb_part[1, "SampleType2"], 
+               Subclass = tb_part[1, "Subclass"],
+               PatientID = tb_part[1, "PatientID"],
+               cosine = o, stringsAsFactors = FALSE)
+  })
+  out <- do.call("rbind", out)
+  out$n_sequences <- x
+  out
+})
+vgene_dist <- do.call("rbind", vgene_dist)
+
+vgene_dist <- ddply(vgene_dist, c("SampleType2", "Subclass", "n_sequences"), summarise, 
+              cosine = median(cosine, na.rm = TRUE), 
+              lowerq = quantile(cosine, prob = 0.25, na.rm = TRUE), 
+              upperq = quantile(cosine, prob = 0.75, na.rm = TRUE))
+vgene_dist$Subclass <- factor(vgene_dist$Subclass,
+                         levels = c("all sequences", "IgM mutated", "IgA1", "IgG1"))
+
+```
+
+gene usage of selected genes shown in Fig 2e at different sub-sampling depths:
+
+```{r, fig.width=9, fig.height=5}
+# gene usage of selected genes at different sub-sampling depths
+selected_v <- c("IGHV1-69", "IGHV3-7", "IGHV3-23", "IGHV3-30", "IGHV4-34", "IGHV4-39")
+vgene$Subclass <- factor(vgene$Subclass,
+                         levels = c("all sequences", "IgM mutated", "IgA1", "IgG1"))
+ggplot(ddply(vgene[vgene$Vgene %in% selected_v, ], 
+             c("SampleType2", "Subclass", "n_sequences", "Vgene"), 
+             summarise , mean_perc=  mean(perc)), 
+       aes(x = n_sequences, y = Vgene, fill = mean_perc)) + geom_tile() +
+  facet_grid(SampleType2 ~ Subclass) + cowplot::theme_cowplot() +
+  scale_fill_gradient2(labels = scales::percent, name = "% repertoire") +
+  ylab("") + xlab("Number of sequences sub-sampled") +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1))
+
+```
+
+Compare the entire V gene usage profile (in terms of % repertoire) between different subsampled 'depths' using cosine similarity (1 = completely identical; 0 = completely different).
+
+```{r, fig.width=8, fig.height=3}
+vgene_dist$n_sequences <- factor(vgene_dist$n_sequences,
+                           levels = c(500, 1000, 2500, 5000, 7500, 10000))
+ggplot(vgene_dist, aes(x = n_sequences, y = cosine, ymin = lowerq, ymax = upperq, 
+                       colour = SampleType2, group = SampleType2)) + 
+  ylab("Cosine similarity vs\ncomplete set of sequences") + 
+  xlab("Number of sequences sub-sampled") + ggtitle("V gene usage") +
+  geom_point() + geom_line() + geom_errorbar(width = 0) + ylim(0.5, 1) +
+  scale_color_brewer(type = "qual", name = "") + facet_wrap(~ Subclass, nrow = 1) + 
+  cowplot::theme_cowplot() + 
+  theme(axis.text.x =  element_text(size = 10, angle = 45, hjust = 1))
+
+```
+
+```{r}
+test_data <- do.call("rbind", test_data)
+test_data$CloneID <- apply(test_data[, c("PatientID", "CloneID")], MARGIN = 1, function(x){
+  gsub(" ", "", paste(x[1], x[2], sep = "_"))
+})
+```
+
+# Class-switching
+
+```{r}
+tree_stats <- list.files(path = '/media/josefng/My_Passport/CovidRepertoire/tree_stats', 
+                         pattern = "rds$", full.names = TRUE)
+tree_stats <- tree_stats[which(grepl(paste(samples, collapse = "|"), tree_stats))]
+tree_stats <- lapply(tree_stats, function(x){
+  ts <- readRDS(x)
+  sample_name <- basename(x)
+  sample_name <- unlist(strsplit(sample_name, split = "_"))[1]
+  ts <- lapply(names(ts), function(y){
+    if( length(ts[[y]]) == 0 ) return(NULL)
+    tb <- ts[[y]]$csr_events
+    if( is.null(tb) ) return(NULL)
+    if( nrow(tb) == 0 ) return(NULL)
+    tb$CloneID <- y
+    tb
+  })
+  ts <- ts[which(sapply(ts, function(z) !is.null(z)))]
+  if(length(ts) > 0){
+    ts <- do.call("rbind", ts)
+    ts$PatientId <- sample_name
+    ts
+  } else return(data.frame())
+})
+tree_stats <- do.call("rbind", tree_stats)
+
+# for each subsampling 'depth' filter tree_stats to include only those sequences
+# which were sampled
+csr_sampled <- lapply(sampled_sequences, function(tb){
+  o <- tree_stats[which(tree_stats$startLabel %in% tb$Seq_ID &
+                        tree_stats$endLabel %in% tb$Seq_ID), ]
+  clones <- ddply(tb, c("SampleType2", "PatientID", "CloneID"), summarise,
+                  NumInClone = length(unique(Seq_ID)))
+  clones$CloneID <- apply(clones[, c("PatientID", "CloneID")], MARGIN = 1, function(x){
+    gsub(" ", "", paste(x[1], x[2], sep = "_"))
+  })
+  clones$CloneGroup <- sapply(clones$NumInClone, function(x){
+    if(is.na(x)) return(NA)
+    if(x == 1) return("Unique")
+    else if(x == 2) return("2")
+    else if(x == 3) return("3")
+    else if(x %in% c(4, 5)) return("4&5")
+    else if(x %in% 6:9) return("6 to 9")
+    return(">10")
+  })
+  o <- merge(o, clones[, c("PatientID", "CloneID", "SampleType2", "CloneGroup")], 
+             by.x = c("PatientId", "CloneID"), by.y = c("PatientID", "CloneID"), 
+             all.x = TRUE, all.y = TRUE, sort = FALSE)
+  tree <- ddply(o, c("SampleType2", "PatientId", "CloneGroup"), summarise,
+    nEvent = length(unique(CloneID[!is.na(distFromGermline)])),
+    meanDist_from_germline = mean(distFromGermline, na.rm = TRUE), .drop = FALSE
+  )
+  tree <- tree[which(! tree$CloneGroup %in% c("Unique", "2")), ]
+  tree <- merge(tree,
+                ddply(clones[which(! clones$CloneGroup %in% c("Unique", "2")), ],
+                      c("SampleType2", "PatientID"), nrow),
+                by.x = c("SampleType2", "PatientId"), 
+                by.y = c("SampleType2", "PatientID"),
+                all.x = FALSE, all.y = FALSE, sort = FALSE)
+  tree$nClone_events <- tree$nEvent / tree$V1 
+  tree#[, -which(colnames(tree) == "V1")]
+})
+names(csr_sampled) <- c(500, 1000, 2500, 5000, 7500, 10000, "all")
+csr_sampled <- lapply(names(csr_sampled), function(x){
+  tb <- csr_sampled[[x]]
+  tb$n_sequences <- x
+  tb
+})
+csr_sampled <- do.call("rbind", csr_sampled)
+csr_sampled$n_sequences <- factor(csr_sampled$n_sequences,
+                                  levels = c(500, 1000, 2500, 5000, 7500, 10000, 
+                                             "all"))
+saveRDS(csr_sampled, "subsampling_CSRfreq.rds")
+```
+
+## Number of CSR events
+
+```{r, fig.width=8, fig.height=3}
+csr_sampled <- readRDS("subsampling_CSRfreq.rds")
+csr_freq <- ddply(csr_sampled, c("SampleType2", "CloneGroup", "n_sequences"), summarise, 
+                  CSRfreq = median(nClone_events, na.rm = TRUE), 
+                  lowerq = quantile(nClone_events, prob = 0.25, na.rm = TRUE), 
+                  upperq = quantile(nClone_events, prob = 0.75, na.rm = TRUE))
+csr_freq$CloneGroup <- factor(csr_freq$CloneGroup, 
+                              levels = c("3", "4&5", "6 to 9", ">10"),
+                              labels = c("3", "4 & 5", "6 to 9", ">10"))
+
+ggplot(csr_freq[which(csr_freq$n_sequences != "all"),], 
+       aes(x = n_sequences, y = CSRfreq, ymin = lowerq, ymax = upperq, 
+           colour = SampleType2, group = SampleType2)) + 
+  xlab("Number of sequences sub-sampled") +
+  geom_point() + geom_line() + geom_errorbar(width = 0) + 
+  geom_hline(data = csr_freq[which(csr_freq$n_sequences == "all"), ],
+             aes(yintercept = CSRfreq, color = SampleType2), linetype = "dashed") +
+  scale_color_brewer(type = "qual", name = "") + facet_wrap(~ CloneGroup, nrow = 1) + 
+  scale_y_continuous(name = "% clones with CSR events", labels = scales::percent) +
+  cowplot::theme_cowplot() + 
+  theme(axis.text.x =  element_text(size = 10, angle = 45, hjust = 1))
+
+```
+
+## CSR distance-from-germline
+
+```{r}
+csr_sampled <- lapply(sampled_sequences, function(tb){
+  o <- tree_stats[which(tree_stats$startLabel %in% tb$Seq_ID &
+                        tree_stats$endLabel %in% tb$Seq_ID), ]
+  clones <- ddply(tb, c("SampleType2", "PatientID", "CloneID"), summarise,
+                  NumInClone = length(unique(Seq_ID)))
+  clones$CloneID <- apply(clones[, c("PatientID", "CloneID")], MARGIN = 1, function(x){
+    gsub(" ", "", paste(x[1], x[2], sep = "_"))
+  })
+  o <- merge(o, clones[, c("PatientID", "CloneID", "SampleType2")], 
+             by.x = c("PatientId", "CloneID"), by.y = c("PatientID", "CloneID"), 
+             all.x = TRUE, all.y = TRUE, sort = FALSE)
+  tree <- ddply(
+    o, c("SampleType2", "PatientId", "startIsotype", "endIsotype"), summarise,
+    nEvent = length(unique(CloneID[!is.na(distFromGermline)])),
+    meanDist_from_germline = mean(distFromGermline, na.rm = TRUE), .drop = FALSE
+  )
+  tree#[, -which(colnames(tree) == "V1")]
+})
+names(csr_sampled) <- c(500, 1000, 2500, 5000, 7500, 10000, "all")
+csr_sampled <- lapply(names(csr_sampled), function(x){
+  tb <- csr_sampled[[x]]
+  tb$n_sequences <- x
+  tb
+})
+csr_sampled <- do.call("rbind", csr_sampled)
+csr_sampled$n_sequences <- factor(csr_sampled$n_sequences,
+                                  levels = c(500, 1000, 2500, 5000, 7500, 10000, 
+                                             "all"))
+saveRDS(csr_sampled, "subsampling_CSRdist.rds")
+
+```
+
+```{r, fig.width=6, fig.height=3}
+csr_dist <- readRDS("subsampling_CSRdist.rds")
+csr_dist <- csr_dist[which(csr_dist$startIsotype != csr_dist$endIsotype), ]
+csr_dist <- csr_dist[which(grepl("Ig[MDE]|IgA[12]|IgG[1-4]",
+                                 csr_dist$startIsotype) &
+                           grepl("Ig[MDE]|IgA[12]|IgG[1-4]",
+                                 csr_dist$endIsotype)), ]
+csr_dist$startIsotype <- factor(csr_dist$startIsotype,
+                                levels = c("IgM", "IgG3", "IgG1", "IgA1",
+                                           "IgG2", "IgG4", "IgE", "IgA2"),
+                                labels = c("M", "G3", "G1", "A1", "G2",
+                                           "G4", "E", "A2"))
+csr_dist$endIsotype <- factor(csr_dist$endIsotype,
+                              levels = c("IgM", "IgG3", "IgG1", "IgA1",
+                                         "IgG2", "IgG4", "IgE", "IgA2"),
+                              labels = c("M", "G3", "G1", "A1", "G2",
+                                         "G4", "E", "A2"))
+csr_dist$csr <- apply(csr_dist[, c("startIsotype", "endIsotype")], 
+                      MARGIN = 1, function(x){
+  paste(x[1], x[2], sep = " to ")
+})
+
+# those shown in Fig 6c
+csr_dist <- csr_dist[which(csr_dist$csr %in% c("M to G1", "G1 to A1")), ]
+
+csr_dist <- ddply(csr_dist, c("SampleType2", "csr", "n_sequences"), summarise, 
+                  CSRdist = median(meanDist_from_germline, na.rm = TRUE), 
+                  lowerq = quantile(meanDist_from_germline, prob = 0.25, na.rm = TRUE), 
+                  upperq = quantile(meanDist_from_germline, prob = 0.75, na.rm = TRUE))
+
+ggplot(csr_dist[which(csr_dist$n_sequences != "all"),], 
+       aes(x = n_sequences, y = CSRdist, ymin = lowerq, ymax = upperq, 
+           colour = SampleType2, group = SampleType2)) + 
+  xlab("Number of sequences sub-sampled") +
+  geom_point() + geom_line() + geom_errorbar(width = 0) + 
+  geom_hline(data = csr_dist[which(csr_dist$n_sequences == "all"), ],
+             aes(yintercept = CSRdist, color = SampleType2), linetype = "dashed") +
+  scale_color_brewer(type = "qual", name = "") + facet_wrap(~ csr, nrow = 1) + 
+  scale_y_continuous(name = "mean distance\nfrom germline") +
+  cowplot::theme_cowplot() + 
+  theme(axis.text.x =  element_text(size = 10, angle = 45, hjust = 1))
+```
+
+# Germline likeness
+
+i.e. distribution of distance-from-germline calculated from lineage trees
+
+```{r}
+distFromGermline <- readRDS('allreps_distFromGermline_annotated.rds')
+
+getDistPercentile <- function(dists, percentiles)
+{
+  sapply(dists, function(d){
+    min(which(d < percentiles))/100
+  })
+}
+
+# calculate AUC
+getAUC <- function(tb)
+{
+  dDist <- c(diff(tb$dist_median), 0)
+  dClone <- c(diff(tb$clone_order), 0)
+  sum(tb$clone_order * dDist) + sum(dDist * dClone)/2
+}
+
+germline_likeness <- lapply(sampled_sequences, function(tb){
+  part <- distFromGermline[which(distFromGermline$Seq_ID %in% tb$Seq_ID), ]
+  # for each clone median / lower quartile / upper quartile of the 
+  # dist-from-gerline of sequences in the clone
+  distFromGermline_median <- ddply(part,
+                                   .variables = c("PatientId", "CloneID",
+                                                "SampleType2"),
+                                 summarise,
+                                 dist_median = median(dist),
+                                 dist_lowerq = quantile(dist, probs = 0.25),
+                                 dist_upperq = quantile(dist, probs = 0.75))
+
+  # convert into percentiles
+  distFromGermline_median$dist_median <- getDistPercentile(
+    distFromGermline_median$dist_median,
+    quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+  )
+  distFromGermline_median$dist_lowerq <- getDistPercentile(
+    distFromGermline_median$dist_lowerq,
+    quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+  )
+  distFromGermline_median$dist_upperq <- getDistPercentile(
+    distFromGermline_median$dist_upperq,
+    quantile(distFromGermline$dist, probs = seq(0.01, 1, by = 0.01))
+  )
+  distFromGermline_median <- split(distFromGermline_median, 
+                                   f = list(distFromGermline_median$SampleType2,
+                                            distFromGermline_median$PatientId), 
+                                   drop = TRUE)
+  # order the clone by median(dist-from-germline) and calculate percentile
+  distFromGermline_median <- lapply(distFromGermline_median, function(tb){
+    tb <- tb[order(tb$dist_median), ]
+    tb$clone_order <- (1:nrow(tb)) / nrow(tb)
+    tb
+  })
+  distFromGermline_median <- do.call("rbind", distFromGermline_median)
+  distFromGermline_AUC <- unique(part[, c("PatientId", "SampleType2")])
+  distFromGermline_median <- split(distFromGermline_median, 
+                                   f = list(distFromGermline_median$SampleType2,
+                                            distFromGermline_median$PatientId), 
+                                   drop = TRUE)
+  distFromGermline_AUC$AUC <- apply(
+    distFromGermline_AUC, MARGIN = 1, 
+    function(x) getAUC(distFromGermline_median[[paste0(x[2], ".", x[1])]])
+  )
+  distFromGermline_AUC$SampleType2 <- factor(distFromGermline_AUC$SampleType2,
+                                             levels = c("Healthy", "COVID-19"),
+                                             labels = c("Healthy", "CV19"))
+  distFromGermline_AUC <- distFromGermline_AUC[which(!is.na(distFromGermline_AUC$SampleType2)), ]
+  return(distFromGermline_AUC)
+})
+names(germline_likeness) <- c(500, 1000, 2500, 5000, 7500, 10000, "all")
+germline_likeness <- lapply(names(germline_likeness), function(x){
+  tb <- germline_likeness[[x]]
+  tb$n_sequences <- x
+  tb
+})
+germline_likeness <- do.call("rbind", germline_likeness)
+germline_likeness$n_sequences <- factor(germline_likeness$n_sequences,
+                                        levels = c(500, 1000, 2500, 5000, 7500, 10000, 
+                                                   "all"))
+saveRDS(germline_likeness, "subsampling_GermlineLikeness.rds")
+
+```
+
+```{r, fig.width=3.5, fig.height=3}
+germline_likeness <- readRDS("subsampling_GermlineLikeness.rds")
+germline_likeness <- ddply(germline_likeness, c("SampleType2", "n_sequences"), summarise, 
+                  median_AUC = median(AUC, na.rm = TRUE), 
+                  lowerq = quantile(AUC, prob = 0.25, na.rm = TRUE), 
+                  upperq = quantile(AUC, prob = 0.75, na.rm = TRUE))
+
+ggplot(germline_likeness[which(germline_likeness$n_sequences != "all"),], 
+       aes(x = n_sequences, y = median_AUC, ymin = lowerq, ymax = upperq, 
+           colour = SampleType2, group = SampleType2)) + 
+  xlab("Number of sequences sub-sampled") +
+  geom_point() + geom_line() + geom_errorbar(width = 0) + 
+  geom_hline(data = germline_likeness[which(germline_likeness$n_sequences == "all"), ],
+             aes(yintercept = median_AUC, color = SampleType2), linetype = "dashed") +
+  scale_color_brewer(type = "qual", name = "") + 
+  scale_y_continuous(name = "Germline likeness") + cowplot::theme_cowplot() + 
+  theme(axis.text.x =  element_text(size = 10, angle = 45, hjust = 1))
+```

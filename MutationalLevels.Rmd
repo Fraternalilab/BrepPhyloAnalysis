@@ -1,7 +1,7 @@
 ---
 title: "Mutational levels"
 author: "Joseph Ng"
-date: "10 June 2021"
+date: "6 February 2022"
 output: html_document
 ---
 
@@ -285,7 +285,7 @@ g2 <- ggplot(distFromGermline_AUC, aes(x = SampleType2, y = AUC, colour = sig)) 
                                  na.rm = TRUE), linetype = "dashed") +
   geom_boxplot(outlier.shape = NA) + geom_point() +
   scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), 
-                      name = "p < 0.05") +
+                      name = "FDR < 0.05") +
   cowplot::theme_cowplot() + xlab("") + ylab("Germline likeness") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), 
         plot.margin = margin(10, 2, 2, 2), legend.position = "bottom")
@@ -496,7 +496,7 @@ ggplot(distFromGermline_AUC, aes(x = Class, y = AUC, colour = sig)) +
                                  na.rm = TRUE), linetype = "dashed") + geom_boxplot() +
   geom_point(position = position_dodge()) + 
   scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), 
-                      name = "p < 0.05") + ylab("Germline likeness") +
+                      name = "FDR < 0.05") + ylab("Germline likeness") +
   cowplot::theme_cowplot() + xlab("") + ylim(0, 1) +
   facet_wrap(~ SampleType2, scales = "free_x")
 saveRDS(distFromGermline_AUC, "allreps_distFromGermline_splitIsotype_AUC.rds")
@@ -572,7 +572,7 @@ ggplot(distFromGermline_AUC, aes(x = Subclass, y = AUC, colour = sig)) +
                                                                distFromGermline_AUC$Subclass == "IgM"), "AUC"],
                                  na.rm = TRUE), linetype = "dashed") + geom_boxplot() +
   geom_point(position = position_dodge()) + #geom_line(aes(group = PatientId)) + 
-  scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), name = "p < 0.05") +
+  scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), name = "FDR < 0.05") +
   cowplot::theme_cowplot() + xlab("") + ylim(0, 1) +
   facet_wrap(~ SampleType2) + ylab("Germline likeness") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
@@ -700,7 +700,7 @@ g2 <- ggplot(distFromGermline_AUC, aes(x = SampleType2, y = AUC, colour = sig)) 
                                  na.rm = TRUE), linetype = "dashed") +
   geom_boxplot(outlier.shape = NA) + geom_point() +
   scale_colour_manual(values = c("TRUE" = "red", "FALSE" = "grey"), 
-                      name = "p < 0.05") +
+                      name = "FDR < 0.05") +
   cowplot::theme_cowplot() + xlab("") + ylab("Germline likeness") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), 
         plot.margin = margin(10, 2, 2, 2), legend.position = "bottom")

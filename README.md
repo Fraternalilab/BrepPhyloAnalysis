@@ -17,6 +17,7 @@ This repository contain R markdown notebooks for analysis performed for this wor
 * `CSR`: Analysis of frequency and distance-from-germline of Class-Switch Recombination events detected from lineage trees. ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/CSR.html))
 * `GeneUsage`: Analysis of V, D, J gene usage. Separation by age groups. ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/GeneUsage.html))
 * `MutationalLevels`: Analysis of mutational levels in lineage trees. ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/MutationalLevels.html))
+* `Subsampling`: Analysis of the effect of sequencing depths on the robustness of the statistics deployed in the analysis, by random subsampling of sequences. ([HTML notebook](http://htmlpreview.github.io/?https://github.com/Fraternalilab/BrepPhyloAnalysis/blob/main/Subsampling.html))
 
 **Note:** These rendered HTML notebooks depend on an online renderer to display the notebooks. As such, the network visualisation for the convergent network clusters (in the `convergence-*` noteboks) does not work. Please download the HTML files and open them locally in an browser to properly visualise these networks.
 
